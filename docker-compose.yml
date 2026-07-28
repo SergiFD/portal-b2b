@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  portal-b2b:
+    build: .
+    container_name: portal-b2b
+    ports:
+      - "3000:3000"
+    environment:
+      # URL interna de Odoo dentro de la red Docker
+      ODOO_URL: http://odoo17_myuniform-odoo-1:8069
+      ODOO_DB: myuniform
+      # Las credenciales las introduce cada usuario en la pantalla de login del portal
+    networks:
+      - odoo17_myuniform_default
+    restart: unless-stopped
+
+networks:
+  odoo17_myuniform_default:
+    external: true
