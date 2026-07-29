@@ -2947,6 +2947,145 @@ async def get_order_grid(order_id: int, session: SessionDep):
     }
 
 
+@app.put("/api/orders/{order_id}/lines/cell")
+async def update_grid_cell(order_id: int, request: Request, session: SessionDep):
+    """Alta/edición de una celda de la tabla cruzada de v-divide:
+    (worker_id, template_id) -> cantidad. Resuelve la variante por talla,
+    valida stock disponible y cupo de grupo, y guarda con
+    _upsert_order_line (mismo camino que el importador Excel)."""
+    body = await request.json()
+    worker_id = int(body["worker_id"])
+    template_id = int(body["template_id"])
+    quantity = float(body.get("quantity") or 0)
+    if quantity < 0:
+        raise HTTPException(400, "La cantidad no puede ser negativa")
+    size_value_id = body.get("size_value_id")
+    size_value_id = int(size_value_id) if size_value_id else None
+
+    orders = await _call_kw(
+        session,
+        "sale.order",
+        "read",
+        [[order_id]],
+        {
+            "fields": ["id", "state", "uniform_agreement_id"],
+            "context": {"lang": "es_ES"},
+        },
+    )
+    if not orders:
+        raise HTTPException(404, "Pedido no encontrado")
+    if orders[0]["state"] != "draft":
+        raise HTTPException(409, "El pedido no está en borrador: no se puede editar")
+    agreement_raw = orders[0].get("uniform_agreement_id")
+    agreement_id = (
+        agreement_raw[0] if isinstance(agreement_raw, list) else agreement_raw
+    )
+
+    if not size_value_id:
+        raise HTTPException(
+            400, "Falta asignar talla al trabajador antes de indicar cantidad"
+        )
+
+    existing_line = await _call_kw(
+        session,
+        "sale.order.line",
+        "search_read",
+        [
+            [
+                ["order_id", "=", order_id],
+                ["product_id.product_tmpl_id", "=", template_id],
+                ["worker_ids", "in", [worker_id]],
+            ]
+        ],
+        {"fields": ["id", "product_id"], "context": {"lang": "es_ES"}},
+    )
+    reference_product_id = existing_line[0]["product_id"][0] if existing_line else None
+
+    variant = await _resolve_variant(
+        session, template_id, size_value_id, reference_product_id
+    )
+
+    if quantity > 0 and variant["qty_available"] < quantity:
+        raise HTTPException(
+            400,
+            f"Sin stock disponible para esa talla (disponible: {variant['qty_available']:.0f})",
+        )
+
+    if agreement_id:
+        groups = await _call_kw(
+            session,
+            "uniform.agreement.product.group",
+            "search_read",
+            [
+                [
+                    ["agreement_id", "=", agreement_id],
+                    ["product_ids.product_tmpl_id", "=", template_id],
+                ]
+            ],
+            {"fields": ["id", "max_qty", "product_ids"], "context": {"lang": "es_ES"}},
+        )
+        if groups:
+            group = groups[0]
+            group_variants = await _call_kw(
+                session,
+                "product.product",
+                "read",
+                [group["product_ids"]],
+                {"fields": ["id", "product_tmpl_id"], "context": {"lang": "es_ES"}},
+            )
+            group_tmpl_ids = list({v["product_tmpl_id"][0] for v in group_variants})
+            sibling_lines = await _call_kw(
+                session,
+                "sale.order.line",
+                "search_read",
+                [
+                    [
+                        ["order_id", "=", order_id],
+                        ["worker_ids", "in", [worker_id]],
+                        ["product_id.product_tmpl_id", "in", group_tmpl_ids],
+                    ]
+                ],
+                {
+                    "fields": ["product_id", "product_uom_qty"],
+                    "context": {"lang": "es_ES"},
+                },
+            )
+            other_total = sum(
+                l["product_uom_qty"]
+                for l in sibling_lines
+                if not (
+                    reference_product_id and l["product_id"][0] == reference_product_id
+                )
+            )
+            if other_total + quantity > group["max_qty"]:
+                raise HTTPException(
+                    400,
+                    f"Supera el cupo compartido del grupo ({other_total + quantity:.0f}/{group['max_qty']})",
+                )
+
+    tmpl = await _call_kw(
+        session,
+        "product.template",
+        "read",
+        [[template_id]],
+        {"fields": ["name"], "context": {"lang": "es_ES"}},
+    )
+    result = await _upsert_order_line(
+        session,
+        order_id,
+        variant["product_id"],
+        quantity,
+        worker_id,
+        tmpl[0]["name"] if tmpl else "",
+    )
+    return {
+        "line_id": result["line_id"],
+        "product_id": variant["product_id"],
+        "quantity": result["quantity"],
+        "qty_available": variant["qty_available"],
+    }
+
+
 @app.post("/api/orders/{order_id}/lines/import")
 async def import_order_lines(order_id: int, request: Request, session: SessionDep):
     body = await request.json()
