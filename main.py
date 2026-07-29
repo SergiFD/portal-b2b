@@ -2502,6 +2502,64 @@ async def import_workers(request: Request, session: SessionDep):
 # ---------------------------------------------------------------------------
 
 
+async def _upsert_order_line(
+    session: dict,
+    order_id: int,
+    product_id: int,
+    quantity: float,
+    worker_id: int | None = None,
+    name: str | None = None,
+) -> dict:
+    """Crea o actualiza la sale.order.line de (order_id, product_id, worker_id).
+
+    Mismo shape de campos que ya usaba el importador Excel (order_id,
+    product_id, product_uom_qty, name, worker_ids=[[6,0,[id]]]), pero
+    evita duplicar líneas si ya existe una para la misma combinación
+    (el importador anterior siempre hacía create, incluso reimportando
+    el mismo Excel dos veces).
+    """
+    domain = [["order_id", "=", order_id], ["product_id", "=", product_id]]
+    existing = await _call_kw(
+        session,
+        "sale.order.line",
+        "search_read",
+        [domain],
+        {"fields": ["id", "worker_ids", "qty_delivered"], "context": {"lang": "es_ES"}},
+    )
+    match = None
+    for l in existing:
+        wids = l.get("worker_ids") or []
+        if worker_id and wids == [worker_id]:
+            match = l
+            break
+        if not worker_id and not wids:
+            match = l
+            break
+    if match:
+        if quantity <= 0 and (match.get("qty_delivered") or 0) <= 0:
+            await _call_kw(session, "sale.order.line", "unlink", [[match["id"]]])
+            return {"line_id": None, "quantity": 0.0}
+        await _call_kw(
+            session,
+            "sale.order.line",
+            "write",
+            [[match["id"]], {"product_uom_qty": quantity}],
+        )
+        return {"line_id": match["id"], "quantity": quantity}
+    if quantity <= 0:
+        return {"line_id": None, "quantity": 0.0}
+    fields: dict = {
+        "order_id": order_id,
+        "product_id": product_id,
+        "product_uom_qty": quantity,
+        "name": name or "",
+    }
+    if worker_id:
+        fields["worker_ids"] = [[6, 0, [worker_id]]]
+    new_id = await _call_kw(session, "sale.order.line", "create", [fields])
+    return {"line_id": new_id, "quantity": quantity}
+
+
 @app.post("/api/orders/{order_id}/lines/import")
 async def import_order_lines(order_id: int, request: Request, session: SessionDep):
     body = await request.json()
@@ -2559,25 +2617,20 @@ async def import_order_lines(order_id: int, request: Request, session: SessionDe
             qty = float(qty_raw) if qty_raw not in (None, "") else 1.0
         except (TypeError, ValueError):
             qty = 1.0
-        fields: dict = {
-            "order_id": order_id,
-            "product_id": product_id,
-            "product_uom_qty": qty,
-            "name": prod_name,
-        }
         worker_name = str(
             row.get("Trabajador") or row.get("worker") or row.get("Empleado") or ""
         ).strip()
+        worker_id = None
         if worker_name:
             worker_id = worker_map.get(worker_name.lower())
-            if worker_id:
-                fields["worker_ids"] = [[6, 0, [worker_id]]]
-            else:
+            if not worker_id:
                 errors.append(
                     f"Fila {i}: trabajador '{worker_name}' no encontrado (línea creada sin trabajador)"
                 )
         try:
-            await _call_kw(session, "sale.order.line", "create", [fields])
+            await _upsert_order_line(
+                session, order_id, product_id, qty, worker_id, prod_name
+            )
             created += 1
         except Exception as exc:
             errors.append(f"Fila {i} ({prod_name}): {exc}")
