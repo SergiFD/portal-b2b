@@ -4203,79 +4203,183 @@ async function submitEditAddress(){
 
 
 /* === V-DIVIDE TABLE === */
+var _gridData=null;
+var _gridExtraWorkers=[];
+
 async function loadDivideTable(){
   var wrap=document.getElementById('divide-table-wrap');
   if(!wrap||!_currentOrderId)return;
   wrap.innerHTML='<div style="padding:32px;text-align:center;color:var(--muted);">Cargando tabla de reparto…</div>';
+  _gridExtraWorkers=[];
   try{
-    var r=await fetch('/api/orders/'+_currentOrderId+'/lines');
-    if(!r.ok){wrap.innerHTML='<div style="padding:32px;text-align:center;color:#DC2626;">Error cargando líneas.</div>';return;}
-    var lines=await r.json();
-    if(!lines.length){wrap.innerHTML='<div style="padding:32px;text-align:center;color:var(--muted);">Sin líneas de pedido.</div>';return;}
-    // Collect unique products (preserving order of appearance)
-    var prodMap={};var prodIds=[];
-    lines.forEach(function(l){
-      if(l.product_id){var pid=l.product_id[0];if(!prodMap[pid]){prodMap[pid]=l.product_id[1];prodIds.push(pid);}}
-    });
-    // Group lines by worker
-    var workerMap={};var workerIds=[];
-    lines.forEach(function(l){
-      if(!l.worker_id)return;
-      var wid=l.worker_id[0];
-      if(!workerMap[wid]){workerMap[wid]={name:l.worker_id[1],lines:[]};workerIds.push(wid);}
-      workerMap[wid].lines.push(l);
-    });
-    // Lines without worker
-    var noWorker=lines.filter(function(l){return !l.worker_id;});
-    // Build table
-    var colW=120;
-    var thProds=prodIds.map(function(pid){
-      return '<th class="pcol th-group" style="min-width:'+colW+'px;text-align:center;">'+escHtml(prodMap[pid])+'</th>';
-    }).join('');
-    var thSub=prodIds.map(function(){
-      return '<th class="th-sub pcol" style="text-align:right;">Ped.</th><th class="th-sub pcol ent" style="text-align:right;">Rec.</th>';
-    }).join('');
-    // Totals per product
-    var totPed={};var totRec={};
-    prodIds.forEach(function(pid){totPed[pid]=0;totRec[pid]=0;});
-    var bodyRows=workerIds.map(function(wid){
-      var w=workerMap[wid];
-      var cells=prodIds.map(function(pid){
-        var wLines=w.lines.filter(function(l){return l.product_id&&l.product_id[0]===pid;});
-        var ped=wLines.reduce(function(s,l){return s+Math.round(l.product_uom_qty||0);},0);
-        var rec=wLines.reduce(function(s,l){return s+Math.round(l.qty_delivered||0);},0);
-        totPed[pid]+=ped;totRec[pid]+=rec;
-        var ok=rec>=ped&&ped>0;
-        return '<td style="text-align:right;font-family:var(--font-m);">'+ped+'</td>'
-          +'<td class="cell-num ent" style="font-family:var(--font-m);">'+rec+'</td>';
-      }).join('');
-      return '<tr class="tr-grouped"><td><div style="font-weight:600;color:var(--near-black);font-size:13px;">'+escHtml(w.name)+'</div></td>'+cells+'</tr>';
-    }).join('');
-    // Totals row
-    var totCells=prodIds.map(function(pid){
-      var ped=totPed[pid];var rec=totRec[pid];var pct=ped?Math.round(rec/ped*100):0;
-      return '<td style="text-align:right;font-family:var(--font-m);font-weight:600;">'+ped+'</td>'
-        +'<td class="cell-num ent" style="font-family:var(--font-m);"><div class="mini-bar"><div class="mbar"><div class="mbar-fill" style="width:'+pct+'%"></div></div><span class="mini-txt">'+rec+'/'+ped+'</span></div></td>';
-    }).join('');
-    var noWRows='';
-    if(noWorker.length){
-      var noWCells=prodIds.map(function(pid){
-        var wl=noWorker.filter(function(l){return l.product_id&&l.product_id[0]===pid;});
-        var ped=wl.reduce(function(s,l){return s+Math.round(l.product_uom_qty||0);},0);
-        var rec=wl.reduce(function(s,l){return s+Math.round(l.qty_delivered||0);},0);
-        return '<td style="text-align:right;font-family:var(--font-m);">'+ped+'</td><td class="cell-num ent">'+rec+'</td>';
-      }).join('');
-      noWRows='<tr><td><div style="color:var(--muted);font-size:12px;">Sin trabajador</div></td>'+noWCells+'</tr>';
-    }
-    wrap.innerHTML=
-      '<table class="atbl" style="min-width:'+(160+prodIds.length*colW*2)+'px;">'
-      +'<thead>'
-      +'<tr><th rowspan="2" style="min-width:160px;">Trabajador</th>'+thProds+'</tr>'
-      +'<tr>'+thSub+'</tr>'
-      +'</thead>'
-      +'<tbody>'+bodyRows+noWRows+'<tr class="total"><td>Totales</td>'+totCells+'</tr></tbody>'
-      +'</table>';
+    var r=await fetch('/api/orders/'+_currentOrderId+'/grid');
+    if(!r.ok){wrap.innerHTML='<div style="padding:32px;text-align:center;color:#DC2626;">Error cargando la tabla.</div>';return;}
+    _gridData=await r.json();
+    renderGridProductsPanel();
+    renderGridWorkerPanel();
+    renderGridTable();
   }catch(e){wrap.innerHTML='<div style="padding:32px;text-align:center;color:#DC2626;">Error.</div>';console.warn('loadDivideTable',e);}
+}
+
+function _gridCell(workerId,templateId){
+  return (_gridData.cells||[]).find(function(c){return c.worker_id===workerId&&c.template_id===templateId;});
+}
+
+function _gridWorkerRows(){
+  return (_gridData.workers_in_order||[]).concat(_gridExtraWorkers);
+}
+
+function renderGridProductsPanel(){
+  var cont=document.getElementById('divide-products-list');
+  if(!cont||!_gridData)return;
+  var items=(_gridData.groups||[]).map(function(g){
+    return '<div class="agi"><div class="agi-name">⛓ '+escHtml(g.name)+'<br><span style="color:#0D9488;font-size:10px;font-weight:600;">Cupo compartido · máx '+g.max_qty+'/trabajador</span></div></div>';
+  }).join('')+(_gridData.loose_products||[]).map(function(p){
+    return '<div class="agi"><div class="agi-name">'+escHtml(p.name)+'</div></div>';
+  }).join('');
+  cont.innerHTML=items||'<div style="font-size:12px;color:var(--muted);">Sin prendas configuradas para este proyecto.</div>';
+}
+
+function renderGridWorkerPanel(){
+  var panel=document.getElementById('divide-worker-panel');
+  if(!panel||!_gridData)return;
+  var avail=(_gridData.workers_available||[]).filter(function(w){
+    return !_gridExtraWorkers.some(function(ew){return ew.id===w.id;});
+  });
+  if(!avail.length){
+    panel.innerHTML='<div style="font-size:12px;color:var(--muted);">No hay más trabajadores del acuerdo para añadir.</div>';
+    return;
+  }
+  panel.innerHTML='<div class="worker-sel-list">'+avail.map(function(w){
+    return '<label class="worker-sel-row"><input type="checkbox" value="'+w.id+'" /><div style="flex:1;"><div class="worker-sel-name">'+escHtml(w.name)+'</div></div></label>';
+  }).join('')+'</div>'
+  +'<button class="btn btn-p btn-sm" style="width:100%;margin-top:8px;justify-content:center;" onclick="addCheckedWorkersToGrid()">+ Añadir a la tabla</button>';
+}
+
+function addCheckedWorkersToGrid(){
+  var panel=document.getElementById('divide-worker-panel');
+  if(!panel)return;
+  var checked=Array.prototype.slice.call(panel.querySelectorAll('input[type=checkbox]:checked'));
+  var ids=checked.map(function(c){return parseInt(c.value);});
+  (_gridData.workers_available||[]).forEach(function(w){
+    if(ids.indexOf(w.id)!==-1)_gridExtraWorkers.push(w);
+  });
+  renderGridWorkerPanel();
+  renderGridTable();
+}
+
+function _renderProductCells(workerId,templateId,isDraft){
+  var cell=_gridCell(workerId,templateId)||{worker_id:workerId,template_id:templateId,qty:0,qty_delivered:0,qty_available:null,size_value_id:null};
+  var categId=(_gridData.categ_by_template||{})[templateId];
+  var workerSizes=(_gridData.worker_sizes||{})[workerId]||{};
+  var sizeValueId=cell.size_value_id||workerSizes[categId]||null;
+  var options=(_gridData.size_options||{})[templateId]||[];
+  var hasSize=!!sizeValueId;
+  var noStock=cell.qty_available!==null&&cell.qty_available!==undefined&&cell.qty_available<=0&&(Number(cell.qty)||0)<=0;
+  var disabled=!isDraft||!hasSize||noStock;
+  var title=!isDraft?'Pedido no editable (no está en borrador)':(!hasSize?'Tallar al trabajador antes de asignar cantidad':(noStock?'Sin stock disponible para esa talla':''));
+  var selHtml='<select class="asel'+(hasSize?'':' tailor')+'" '+(isDraft?'':'disabled')+' onchange="onGridSizeChange(this,'+workerId+','+templateId+')" title="'+escHtml(title)+'">'
+    +(hasSize?'':'<option value="">⚠ Tallar</option>')
+    +options.map(function(o){return '<option value="'+o.id+'"'+(o.id===sizeValueId?' selected':'')+'>'+escHtml(o.name)+'</option>';}).join('')
+    +'</select>';
+  var qtyHtml='<input class="ainput-sm" type="number" min="0" value="'+(Number(cell.qty)||0)+'" '+(disabled?'disabled':'')+' title="'+escHtml(title)+'" onblur="onGridQtyChange(this,'+workerId+','+templateId+')" onkeydown="if(event.key===\'Enter\')this.blur();" />';
+  return '<td>'+selHtml+'</td><td>'+qtyHtml+'</td><td class="cell-num ent">'+(Number(cell.qty_delivered)||0)+'</td>';
+}
+
+function renderGridTable(){
+  var wrap=document.getElementById('divide-table-wrap');
+  if(!wrap||!_gridData)return;
+  var isDraft=_gridData.order.state==='draft';
+  var groups=_gridData.groups||[];
+  var loose=_gridData.loose_products||[];
+  var workers=_gridWorkerRows();
+  if(!groups.length&&!loose.length){
+    wrap.innerHTML='<div style="padding:32px;text-align:center;color:var(--muted);">Sin prendas configuradas para este proyecto.</div>';
+    return;
+  }
+  if(!workers.length){
+    wrap.innerHTML='<div style="padding:32px;text-align:center;color:var(--muted);">Añade trabajadores desde el panel izquierdo para empezar el reparto.</div>';
+    return;
+  }
+  var thRow1=groups.map(function(g){
+    return '<th colspan="'+(1+g.products.length*3)+'" class="pcol th-group" style="border-left:3px solid #0D9488;background:rgba(13,148,136,.1);color:#0D9488;">⛓ '+escHtml(g.name)+' · máx '+g.max_qty+'/trab.</th>';
+  }).join('')+loose.map(function(p){
+    return '<th colspan="3" class="pcol th-group">'+escHtml(p.name)+'</th>';
+  }).join('');
+  var thRow2=groups.map(function(g){
+    return '<th class="th-sub" style="border-left:3px solid #0D9488;background:rgba(13,148,136,.08);color:#0D9488;">Cupo<br>Grupo</th>'
+      +g.products.map(function(p){
+        return '<th class="th-sub" style="background:rgba(13,148,136,.08);color:#0D9488;">Talla<br>'+escHtml(p.name)+'</th>'
+          +'<th class="th-sub" style="background:rgba(13,148,136,.08);color:#0D9488;">Ped.</th>'
+          +'<th class="th-sub" style="background:rgba(13,148,136,.06);color:#0D9488;">Rec.</th>';
+      }).join('');
+  }).join('')+loose.map(function(){
+    return '<th class="th-sub pcol">Talla</th><th class="th-sub pcol">Ped.</th><th class="th-sub pcol">Rec.</th>';
+  }).join('');
+  var bodyRows=workers.map(function(w){
+    var groupCells=groups.map(function(g){
+      var groupTotal=g.products.reduce(function(s,p){
+        var c=_gridCell(w.id,p.template_id);
+        return s+(c?Number(c.qty)||0:0);
+      },0);
+      return '<td style="border-left:3px solid #0D9488;text-align:center;font-family:var(--font-m);font-size:12px;color:#0D9488;">'+groupTotal+'/'+g.max_qty+'</td>'
+        +g.products.map(function(p){return _renderProductCells(w.id,p.template_id,isDraft);}).join('');
+    }).join('');
+    var looseCells=loose.map(function(p){return _renderProductCells(w.id,p.template_id,isDraft);}).join('');
+    return '<tr class="tr-grouped"><td><div style="font-weight:600;color:var(--near-black);font-size:13px;">'+escHtml(w.name)+'</div></td>'+groupCells+looseCells+'</tr>';
+  }).join('');
+  var totalsRow=groups.map(function(g){
+    var pedRec=g.products.map(function(p){
+      var ped=0,rec=0;
+      workers.forEach(function(w){var c=_gridCell(w.id,p.template_id);if(c){ped+=Number(c.qty)||0;rec+=Number(c.qty_delivered)||0;}});
+      return '<td></td><td style="text-align:center;font-weight:600;">'+ped+'</td><td class="cell-num ent">'+rec+'</td>';
+    }).join('');
+    return '<td style="border-left:3px solid #0D9488;"></td>'+pedRec;
+  }).join('')+loose.map(function(p){
+    var ped=0,rec=0;
+    workers.forEach(function(w){var c=_gridCell(w.id,p.template_id);if(c){ped+=Number(c.qty)||0;rec+=Number(c.qty_delivered)||0;}});
+    return '<td></td><td style="text-align:center;font-weight:600;">'+ped+'</td><td class="cell-num ent">'+rec+'</td>';
+  }).join('');
+  wrap.innerHTML='<table class="atbl"><thead>'
+    +'<tr><th rowspan="2" style="min-width:160px;">Trabajador</th>'+thRow1+'</tr>'
+    +'<tr>'+thRow2+'</tr>'
+    +'</thead><tbody>'+bodyRows+'<tr class="total"><td>Totales</td>'+totalsRow+'</tr></tbody></table>';
+}
+
+async function onGridSizeChange(sel,workerId,templateId){
+  var td=sel.closest('td');
+  var qtyInput=td&&td.nextElementSibling?td.nextElementSibling.querySelector('input'):null;
+  var qty=qtyInput?(parseFloat(qtyInput.value)||0):0;
+  await saveGridCell(workerId,templateId,qty,parseInt(sel.value)||null);
+}
+
+async function onGridQtyChange(inp,workerId,templateId){
+  var qty=parseFloat(inp.value);
+  if(isNaN(qty)||qty<0){alert('Cantidad no válida.');renderGridTable();return;}
+  var td=inp.closest('td');
+  var selEl=td&&td.previousElementSibling?td.previousElementSibling.querySelector('select'):null;
+  var sizeValueId=selEl?(parseInt(selEl.value)||null):null;
+  await saveGridCell(workerId,templateId,qty,sizeValueId);
+}
+
+async function saveGridCell(workerId,templateId,quantity,sizeValueId){
+  try{
+    var r=await fetch('/api/orders/'+_currentOrderId+'/lines/cell',{
+      method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({worker_id:workerId,template_id:templateId,quantity:quantity,size_value_id:sizeValueId})
+    });
+    var result=await r.json();
+    if(!r.ok)throw new Error(result.detail||'Error al guardar');
+    var cell=_gridCell(workerId,templateId);
+    if(!cell){cell={worker_id:workerId,template_id:templateId};_gridData.cells.push(cell);}
+    cell.line_id=result.line_id;cell.product_id=result.product_id;
+    cell.qty=result.quantity;cell.qty_available=result.qty_available;
+    cell.size_value_id=sizeValueId;
+    renderGridTable();
+  }catch(e){
+    alert('Error guardando: '+(e.message||e));
+    renderGridTable();
+  }
 }
 
 /* === V-GARMENT-WORKERS === */
