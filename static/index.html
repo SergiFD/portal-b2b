@@ -295,6 +295,11 @@ table.atbl tr.total td { background: var(--bg); font-weight: 700; font-family: v
 .cell-num { font-family:var(--font-m); font-size:13px; text-align:center; padding:6px 8px; color:var(--body); }
 .cell-num.est { font-weight:700; color:var(--red); }
 .cell-num.ent { color:var(--green); font-weight:600; }
+.asel { font-size: 12px; border: 1px solid var(--border); border-radius: 4px; padding: 4px 7px; color: var(--near-black); background: #fff; outline: none; }
+.asel.tailor { color: var(--amber); border-color: #FDE68A; background: #FFFBEB; }
+.ainput-sm { width:46px; text-align:center; font-family:var(--font-m); font-size:13px; border:1px solid var(--border); border-radius:4px; padding:3px 4px; outline:none; }
+.ainput-sm:focus { border-color:var(--red); box-shadow:0 0 0 2px rgba(2,40,79,.10); }
+.ainput-sm:disabled, .asel:disabled { opacity:.35; cursor:not-allowed; }
 .tr-grouped td { background:rgba(13,148,136,.07); border-bottom:1px solid rgba(13,148,136,.15); }
 .tr-grouped td:first-child { border-left:3px solid #0D9488; }
 
@@ -1123,11 +1128,19 @@ table.atbl tr.total td { background: var(--bg); font-weight: 700; font-family: v
       <div class="alay">
         <!-- Panel izq -->
         <div class="apanel">
-          <div class="apanel-t">Importar reparto</div>
-          <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5;">
-            Descarga la plantilla ("Plantilla Excel" arriba), rellena trabajador · prenda · cantidad y súbela aquí para repartir el pedido en bloque.
+          <div class="apanel-t">Prendas del proyecto</div>
+          <div id="divide-products-list"><div style="font-size:12px;color:var(--muted);">Selecciona un pedido para ver sus prendas.</div></div>
+
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);">
+            <div class="apanel-t" style="margin-bottom:10px;">Gestión de trabajadores</div>
+            <div id="divide-worker-panel"><div style="font-size:12px;color:var(--muted);">Cargando...</div></div>
           </div>
-          <div style="margin-top:0;">
+
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+            <div class="apanel-t" style="margin-bottom:6px;">Importar reparto</div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5;">
+              Descarga la plantilla ("Plantilla Excel" arriba), rellena trabajador · prenda · cantidad y súbela aquí para repartir el pedido en bloque.
+            </div>
             <div class="upload-zone" onclick="importDivideExcel()">
               <div class="upload-icon">📤</div>
               <div class="upload-txt">Importar Excel</div>
