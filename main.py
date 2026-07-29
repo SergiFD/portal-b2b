@@ -2539,13 +2539,15 @@ async def _upsert_order_line(
         if quantity <= 0 and (match.get("qty_delivered") or 0) <= 0:
             await _call_kw(session, "sale.order.line", "unlink", [[match["id"]]])
             return {"line_id": None, "quantity": 0.0}
+        # Clamp to 0 if quantity is <= 0 (can't unlink due to qty_delivered > 0)
+        write_quantity = max(quantity, 0)
         await _call_kw(
             session,
             "sale.order.line",
             "write",
-            [[match["id"]], {"product_uom_qty": quantity}],
+            [[match["id"]], {"product_uom_qty": write_quantity}],
         )
-        return {"line_id": match["id"], "quantity": quantity}
+        return {"line_id": match["id"], "quantity": write_quantity}
     if quantity <= 0:
         return {"line_id": None, "quantity": 0.0}
     fields: dict = {
