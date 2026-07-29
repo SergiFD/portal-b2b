@@ -2678,6 +2678,269 @@ async def _resolve_variant(
     return {"product_id": chosen["id"], "qty_available": chosen.get("qty_available", 0)}
 
 
+@app.get("/api/orders/{order_id}/grid")
+async def get_order_grid(order_id: int, session: SessionDep):
+    """Datos agregados para la tabla cruzada editable de v-divide: grupos
+    con cupo compartido, prendas sueltas del proyecto, trabajadores del
+    pedido y del acuerdo, y el estado de cada celda (talla/cantidad/stock)."""
+    orders = await _call_kw(
+        session,
+        "sale.order",
+        "read",
+        [[order_id]],
+        {
+            "fields": ["id", "name", "state", "uniform_agreement_id"],
+            "context": {"lang": "es_ES"},
+        },
+    )
+    if not orders:
+        raise HTTPException(404, "Pedido no encontrado")
+    order = orders[0]
+    agreement_raw = order.get("uniform_agreement_id")
+    agreement_id = (
+        agreement_raw[0] if isinstance(agreement_raw, list) else agreement_raw
+    )
+
+    lines = await _call_kw(
+        session,
+        "sale.order.line",
+        "search_read",
+        [[["order_id", "=", order_id], ["display_type", "=", False]]],
+        {
+            "fields": [
+                "id",
+                "product_id",
+                "product_uom_qty",
+                "qty_delivered",
+                "worker_ids",
+            ],
+            "context": {"lang": "es_ES"},
+        },
+    )
+
+    project_lines = lines
+    if agreement_id:
+        ag_orders = await _call_kw(
+            session,
+            "sale.order",
+            "search_read",
+            [[["uniform_agreement_id", "=", agreement_id]]],
+            {"fields": ["id"], "context": {"lang": "es_ES"}},
+        )
+        agreement_order_ids = [o["id"] for o in ag_orders]
+        project_lines = await _call_kw(
+            session,
+            "sale.order.line",
+            "search_read",
+            [[["order_id", "in", agreement_order_ids], ["display_type", "=", False]]],
+            {"fields": ["product_id"], "context": {"lang": "es_ES"}},
+        )
+
+    product_ids = list(
+        {l["product_id"][0] for l in (lines + project_lines) if l.get("product_id")}
+    )
+    variants = []
+    if product_ids:
+        variants = await _call_kw(
+            session,
+            "product.product",
+            "read",
+            [product_ids],
+            {
+                "fields": ["id", "product_tmpl_id", "qty_available"],
+                "context": {"lang": "es_ES"},
+            },
+        )
+    variant_map = {v["id"]: v for v in variants}
+
+    groups = []
+    grouped_tmpl_ids: set = set()
+    if agreement_id:
+        raw_groups = await _call_kw(
+            session,
+            "uniform.agreement.product.group",
+            "search_read",
+            [[["agreement_id", "=", agreement_id]]],
+            {
+                "fields": ["id", "name", "product_ids", "max_qty"],
+                "context": {"lang": "es_ES"},
+            },
+        )
+        group_variant_ids = list({pid for g in raw_groups for pid in g["product_ids"]})
+        group_variants = {}
+        if group_variant_ids:
+            gv = await _call_kw(
+                session,
+                "product.product",
+                "read",
+                [group_variant_ids],
+                {"fields": ["id", "product_tmpl_id"], "context": {"lang": "es_ES"}},
+            )
+            group_variants = {v["id"]: v for v in gv}
+        for g in raw_groups:
+            tmpl_ids_seen: list = []
+            products = []
+            for pid in g["product_ids"]:
+                v = group_variants.get(pid)
+                if not v:
+                    continue
+                tid = v["product_tmpl_id"][0]
+                if tid in tmpl_ids_seen:
+                    continue
+                tmpl_ids_seen.append(tid)
+                products.append({"template_id": tid, "name": v["product_tmpl_id"][1]})
+            grouped_tmpl_ids.update(tmpl_ids_seen)
+            groups.append(
+                {
+                    "id": g["id"],
+                    "name": g["name"],
+                    "max_qty": g["max_qty"],
+                    "products": products,
+                }
+            )
+
+    loose_products = []
+    seen_tmpl: set = set()
+    for l in project_lines:
+        pid = l.get("product_id")
+        if not pid:
+            continue
+        v = variant_map.get(pid[0])
+        if not v:
+            continue
+        tid = v["product_tmpl_id"][0]
+        if tid in grouped_tmpl_ids or tid in seen_tmpl:
+            continue
+        seen_tmpl.add(tid)
+        loose_products.append({"template_id": tid, "name": v["product_tmpl_id"][1]})
+
+    all_template_ids = list(grouped_tmpl_ids | seen_tmpl)
+    size_options_by_tmpl = {
+        tid: await _template_size_options(session, tid) for tid in all_template_ids
+    }
+
+    categ_by_tmpl: dict = {}
+    if all_template_ids:
+        tmpls = await _call_kw(
+            session,
+            "product.template",
+            "read",
+            [all_template_ids],
+            {"fields": ["categ_id"], "context": {"lang": "es_ES"}},
+        )
+        categ_by_tmpl = {
+            t["id"]: (t["categ_id"][0] if t.get("categ_id") else None) for t in tmpls
+        }
+
+    worker_ids_in_order = list(
+        {wid for l in lines for wid in (l.get("worker_ids") or [])}
+    )
+    workers_in_order = []
+    if worker_ids_in_order:
+        workers_in_order = await _call_kw(
+            session,
+            "uniform.agreement.worker",
+            "read",
+            [worker_ids_in_order],
+            {"fields": ["id", "name"], "context": {"lang": "es_ES"}},
+        )
+
+    workers_available = []
+    if agreement_id:
+        agreement_workers = await list_all_workers(agreement_id, session)
+        workers_available = [
+            w
+            for w in agreement_workers["workers"]
+            if w["id"] not in worker_ids_in_order
+        ]
+
+    all_worker_ids_for_sizes = worker_ids_in_order + [
+        w["id"] for w in workers_available
+    ]
+    worker_sizes: dict = {}
+    if all_worker_ids_for_sizes:
+        sizes = await _call_kw(
+            session,
+            "uniform.agreement.worker.size",
+            "search_read",
+            [[["worker_id", "in", all_worker_ids_for_sizes]]],
+            {
+                "fields": ["worker_id", "category_id", "size_value_id"],
+                "context": {"lang": "es_ES"},
+            },
+        )
+        for s in sizes:
+            wid = s["worker_id"][0]
+            cid = s["category_id"][0]
+            sv = s["size_value_id"][0] if s.get("size_value_id") else None
+            worker_sizes.setdefault(wid, {})[cid] = sv
+
+    lines_by_worker_tmpl: dict = {}
+    for l in lines:
+        pid = l.get("product_id")
+        if not pid:
+            continue
+        v = variant_map.get(pid[0])
+        if not v:
+            continue
+        tid = v["product_tmpl_id"][0]
+        wids = l.get("worker_ids") or []
+        wid = wids[0] if wids else None
+        lines_by_worker_tmpl[(wid, tid)] = l
+
+    cells = []
+    for w in workers_in_order:
+        for tid in all_template_ids:
+            existing = lines_by_worker_tmpl.get((w["id"], tid))
+            categ_id = categ_by_tmpl.get(tid)
+            size_value = (worker_sizes.get(w["id"]) or {}).get(categ_id)
+            if existing:
+                pid = existing["product_id"][0]
+                v = variant_map.get(pid, {})
+                cells.append(
+                    {
+                        "worker_id": w["id"],
+                        "template_id": tid,
+                        "line_id": existing["id"],
+                        "product_id": pid,
+                        "size_value_id": size_value,
+                        "qty": existing.get("product_uom_qty") or 0,
+                        "qty_delivered": existing.get("qty_delivered") or 0,
+                        "qty_available": v.get("qty_available", 0),
+                    }
+                )
+            else:
+                cells.append(
+                    {
+                        "worker_id": w["id"],
+                        "template_id": tid,
+                        "line_id": None,
+                        "product_id": None,
+                        "size_value_id": size_value,
+                        "qty": 0,
+                        "qty_delivered": 0,
+                        "qty_available": None,
+                    }
+                )
+
+    return {
+        "order": {
+            "id": order["id"],
+            "state": order["state"],
+            "name": order.get("name"),
+            "agreement_id": agreement_id,
+        },
+        "groups": groups,
+        "loose_products": loose_products,
+        "size_options": size_options_by_tmpl,
+        "categ_by_template": categ_by_tmpl,
+        "worker_sizes": worker_sizes,
+        "workers_in_order": workers_in_order,
+        "workers_available": workers_available,
+        "cells": cells,
+    }
+
+
 @app.post("/api/orders/{order_id}/lines/import")
 async def import_order_lines(order_id: int, request: Request, session: SessionDep):
     body = await request.json()
