@@ -2997,7 +2997,10 @@ async def update_grid_cell(order_id: int, request: Request, session: SessionDep)
                 ["worker_ids", "in", [worker_id]],
             ]
         ],
-        {"fields": ["id", "product_id"], "context": {"lang": "es_ES"}},
+        {
+            "fields": ["id", "product_id", "qty_delivered"],
+            "context": {"lang": "es_ES"},
+        },
     )
     reference_product_id = existing_line[0]["product_id"][0] if existing_line else None
 
@@ -3024,8 +3027,7 @@ async def update_grid_cell(order_id: int, request: Request, session: SessionDep)
             ],
             {"fields": ["id", "max_qty", "product_ids"], "context": {"lang": "es_ES"}},
         )
-        if groups:
-            group = groups[0]
+        for group in groups:
             group_variants = await _call_kw(
                 session,
                 "product.product",
@@ -3062,6 +3064,36 @@ async def update_grid_cell(order_id: int, request: Request, session: SessionDep)
                     400,
                     f"Supera el cupo compartido del grupo ({other_total + quantity:.0f}/{group['max_qty']})",
                 )
+
+    if existing_line and existing_line[0]["product_id"][0] != variant["product_id"]:
+        # La talla cambió de verdad (variante resuelta distinta de la línea
+        # existente): sustituir la línea vieja en lugar de crear una nueva,
+        # para no dejar una línea huérfana con la talla/cantidad antiguas.
+        old_line_id = existing_line[0]["id"]
+        old_qty_delivered = existing_line[0].get("qty_delivered") or 0
+        if quantity <= 0 and old_qty_delivered <= 0:
+            await _call_kw(session, "sale.order.line", "unlink", [[old_line_id]])
+            return {
+                "line_id": None,
+                "product_id": variant["product_id"],
+                "quantity": 0.0,
+                "qty_available": variant["qty_available"],
+            }
+        await _call_kw(
+            session,
+            "sale.order.line",
+            "write",
+            [
+                [old_line_id],
+                {"product_id": variant["product_id"], "product_uom_qty": quantity},
+            ],
+        )
+        return {
+            "line_id": old_line_id,
+            "product_id": variant["product_id"],
+            "quantity": quantity,
+            "qty_available": variant["qty_available"],
+        }
 
     tmpl = await _call_kw(
         session,
