@@ -2562,6 +2562,122 @@ async def _upsert_order_line(
     return {"line_id": new_id, "quantity": quantity}
 
 
+async def _template_size_options(session: dict, product_tmpl_id: int) -> list[dict]:
+    """Valores de talla disponibles para un product.template. Mismo criterio
+    que GET /api/products/{id} (main.py): busca el atributo con
+    attribute_id.type == 'size' entre las líneas de atributo del template."""
+    tmpl = await _call_kw(
+        session,
+        "product.template",
+        "read",
+        [[product_tmpl_id]],
+        {"fields": ["attribute_line_ids"], "context": {"lang": "es_ES"}},
+    )
+    if not tmpl:
+        return []
+    line_ids = tmpl[0].get("attribute_line_ids") or []
+    if not line_ids:
+        return []
+    lines = await _call_kw(
+        session,
+        "product.template.attribute.line",
+        "read",
+        [line_ids],
+        {"fields": ["attribute_id", "value_ids"], "context": {"lang": "es_ES"}},
+    )
+    attr_ids = list({l["attribute_id"][0] for l in lines if l.get("attribute_id")})
+    if not attr_ids:
+        return []
+    attrs = await _call_kw(
+        session,
+        "product.attribute",
+        "read",
+        [attr_ids],
+        {"fields": ["id", "type"], "context": {"lang": "es_ES"}},
+    )
+    size_attr_ids = {a["id"] for a in attrs if a.get("type") == "size"}
+    value_ids = list(
+        {
+            vid
+            for l in lines
+            if l.get("attribute_id") and l["attribute_id"][0] in size_attr_ids
+            for vid in l.get("value_ids", [])
+        }
+    )
+    if not value_ids:
+        return []
+    values = await _call_kw(
+        session,
+        "product.attribute.value",
+        "read",
+        [value_ids],
+        {"fields": ["id", "name"], "context": {"lang": "es_ES"}},
+    )
+    return [{"id": v["id"], "name": v["name"]} for v in values]
+
+
+async def _resolve_variant(
+    session: dict,
+    product_tmpl_id: int,
+    size_value_id: int,
+    reference_product_id: int | None = None,
+) -> dict:
+    """Devuelve la variante (product.product) de product_tmpl_id con la
+    talla size_value_id, manteniendo el resto de atributos (p.ej. color)
+    iguales a reference_product_id si se indica. Mismo criterio que
+    divide_by_workers_wizard._get_variant_from_base_product
+    (odoo17_myuniform/custom_addons/edyma_myuniform/wizards/divide_by_workers_wizard.py:72),
+    reimplementado como lookup de solo lectura (no se toca el módulo Odoo)."""
+    variants = await _call_kw(
+        session,
+        "product.product",
+        "search_read",
+        [[["product_tmpl_id", "=", product_tmpl_id]]],
+        {
+            "fields": ["id", "product_template_attribute_value_ids", "qty_available"],
+            "context": {"lang": "es_ES"},
+        },
+    )
+    if not variants:
+        raise HTTPException(404, "Sin variantes para esta prenda")
+    ptav_ids = list(
+        {pid for v in variants for pid in v["product_template_attribute_value_ids"]}
+    )
+    ptavs = await _call_kw(
+        session,
+        "product.template.attribute.value",
+        "read",
+        [ptav_ids],
+        {"fields": ["product_attribute_value_id"], "context": {"lang": "es_ES"}},
+    )
+    ptav_to_value = {p["id"]: p["product_attribute_value_id"][0] for p in ptavs}
+    size_ptav_ids = {pid for pid, vid in ptav_to_value.items() if vid == size_value_id}
+    candidates = [
+        v
+        for v in variants
+        if size_ptav_ids & set(v["product_template_attribute_value_ids"])
+    ]
+    if not candidates:
+        raise HTTPException(404, "No existe variante para esa talla")
+    if reference_product_id:
+        ref = next((v for v in variants if v["id"] == reference_product_id), None)
+        if ref:
+            ref_other = set(ref["product_template_attribute_value_ids"]) - size_ptav_ids
+            best = max(
+                candidates,
+                key=lambda v: len(
+                    ref_other
+                    & (set(v["product_template_attribute_value_ids"]) - size_ptav_ids)
+                ),
+            )
+            return {
+                "product_id": best["id"],
+                "qty_available": best.get("qty_available", 0),
+            }
+    chosen = candidates[0]
+    return {"product_id": chosen["id"], "qty_available": chosen.get("qty_available", 0)}
+
+
 @app.post("/api/orders/{order_id}/lines/import")
 async def import_order_lines(order_id: int, request: Request, session: SessionDep):
     body = await request.json()
