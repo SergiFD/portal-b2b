@@ -2998,7 +2998,7 @@ async def update_grid_cell(order_id: int, request: Request, session: SessionDep)
             ]
         ],
         {
-            "fields": ["id", "product_id", "qty_delivered"],
+            "fields": ["id", "product_id", "worker_ids", "qty_delivered"],
             "context": {"lang": "es_ES"},
         },
     )
@@ -3065,10 +3065,19 @@ async def update_grid_cell(order_id: int, request: Request, session: SessionDep)
                     f"Supera el cupo compartido del grupo ({other_total + quantity:.0f}/{group['max_qty']})",
                 )
 
-    if existing_line and existing_line[0]["product_id"][0] != variant["product_id"]:
+    if (
+        existing_line
+        and existing_line[0]["product_id"][0] != variant["product_id"]
+        and (existing_line[0].get("worker_ids") or []) == [worker_id]
+    ):
         # La talla cambió de verdad (variante resuelta distinta de la línea
         # existente): sustituir la línea vieja en lugar de crear una nueva,
         # para no dejar una línea huérfana con la talla/cantidad antiguas.
+        # Solo tocamos la línea vieja directamente si es EXCLUSIVA de este
+        # trabajador (worker_ids == [worker_id], igual que _upsert_order_line);
+        # si es una línea compartida por varios trabajadores (o vacía), no la
+        # tocamos aquí y caemos al _upsert_order_line de abajo, que crea una
+        # línea nueva y dedicada para este trabajador sin afectar a los demás.
         old_line_id = existing_line[0]["id"]
         old_qty_delivered = existing_line[0].get("qty_delivered") or 0
         if quantity <= 0 and old_qty_delivered <= 0:
