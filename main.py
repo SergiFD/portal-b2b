@@ -3065,6 +3065,15 @@ async def update_grid_cell(order_id: int, request: Request, session: SessionDep)
                     f"Supera el cupo compartido del grupo ({other_total + quantity:.0f}/{group['max_qty']})",
                 )
 
+    tmpl = await _call_kw(
+        session,
+        "product.template",
+        "read",
+        [[template_id]],
+        {"fields": ["name"], "context": {"lang": "es_ES"}},
+    )
+    tmpl_name = tmpl[0]["name"] if tmpl else ""
+
     if (
         existing_line
         and existing_line[0]["product_id"][0] != variant["product_id"]
@@ -3094,7 +3103,11 @@ async def update_grid_cell(order_id: int, request: Request, session: SessionDep)
             "write",
             [
                 [old_line_id],
-                {"product_id": variant["product_id"], "product_uom_qty": quantity},
+                {
+                    "product_id": variant["product_id"],
+                    "product_uom_qty": quantity,
+                    "name": tmpl_name,
+                },
             ],
         )
         return {
@@ -3104,20 +3117,13 @@ async def update_grid_cell(order_id: int, request: Request, session: SessionDep)
             "qty_available": variant["qty_available"],
         }
 
-    tmpl = await _call_kw(
-        session,
-        "product.template",
-        "read",
-        [[template_id]],
-        {"fields": ["name"], "context": {"lang": "es_ES"}},
-    )
     result = await _upsert_order_line(
         session,
         order_id,
         variant["product_id"],
         quantity,
         worker_id,
-        tmpl[0]["name"] if tmpl else "",
+        tmpl_name,
     )
     return {
         "line_id": result["line_id"],
