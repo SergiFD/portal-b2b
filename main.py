@@ -2871,7 +2871,13 @@ async def get_order_grid(order_id: int, session: SessionDep):
         )
         for s in sizes:
             wid = s["worker_id"][0]
-            cid = s["category_id"][0]
+            cid = (
+                s["category_id"][0]
+                if isinstance(s.get("category_id"), list)
+                else s.get("category_id")
+            )
+            if not cid:
+                continue
             sv = s["size_value_id"][0] if s.get("size_value_id") else None
             worker_sizes.setdefault(wid, {})[cid] = sv
 
