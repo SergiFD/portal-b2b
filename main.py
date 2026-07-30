@@ -41,6 +41,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Portal B2B — MyUniform", lifespan=lifespan)
 
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    """Sin esto, cualquier excepción no controlada (bug real, timeout de RPC
+    contra Odoo, una reconexión a medio reiniciar el contenedor...) la
+    devuelve Starlette como texto plano "Internal Server Error" — el
+    frontend hace siempre `await r.json()` y eso revienta con
+    "SyntaxError: Unexpected token 'I', "Internal S"... is not valid JSON".
+    Aquí se homogeneiza a JSON como cualquier HTTPException normal."""
+    return JSONResponse(status_code=500, content={"detail": f"Error interno: {exc}"})
+
+
 # ---------------------------------------------------------------------------
 # Helpers JSON-RPC
 # ---------------------------------------------------------------------------
