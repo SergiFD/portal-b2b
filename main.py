@@ -1245,11 +1245,14 @@ async def get_order_deliveries(order_id: int, session: SessionDep):
     picking_ids = orders[0].get("picking_ids", []) if orders else []
     if not picking_ids:
         return []
+    # sale.order.picking_ids viaja por el grupo de aprovisionamiento y arrastra
+    # cualquier movimiento relacionado (transferencias internas, devoluciones),
+    # no solo la entrega al cliente — filtramos a solo albaranes de salida.
     return await _call_kw(
         session,
         "stock.picking",
         "search_read",
-        [[["id", "in", picking_ids]]],
+        [[["id", "in", picking_ids], ["picking_type_code", "=", "outgoing"]]],
         {
             "fields": [
                 "id",
@@ -2335,11 +2338,13 @@ async def list_deliveries(agreement_id: int, session: SessionDep):
     picking_ids = [p for o in orders for p in o.get("picking_ids", [])]
     if not picking_ids:
         return []
+    # Mismo motivo que en get_order_deliveries: picking_ids incluye
+    # transferencias internas y devoluciones, no solo entregas de salida.
     return await _call_kw(
         session,
         "stock.picking",
         "search_read",
-        [[["id", "in", picking_ids]]],
+        [[["id", "in", picking_ids], ["picking_type_code", "=", "outgoing"]]],
         {
             "fields": [
                 "id",
