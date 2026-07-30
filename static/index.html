@@ -3247,7 +3247,7 @@ function renderDelegTree(delegs,cont){
       var nw=dept.worker_count;
       var stCls=no>0?'t-red':'t-grey';
       var stTxt=no>0?no+' pedido'+(no!==1?'s':''):' sin pedidos activos';
-      var respRecep=dept.partner_id?escHtml(dept.partner_id[1]):'';
+      var respRecep=dept.responsable_id?escHtml(dept.responsable_id[1]):'';
       return '<div class="di-dept">'
         +'<div class="di-dept-l">'
         +'<div class="di-dept-name">'+escHtml(dept.name)+'</div>'
@@ -3338,11 +3338,13 @@ function renderDeptsTable(depts,cont){
       return '<span class="dept-tag" style="display:inline-flex;align-items:center;gap:3px;"><svg width="7" height="7" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="10" r="4"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/></svg>'+escHtml(n)+'</span>';
     }).join('');
     var entrega=d.partner_id?escHtml(d.partner_id[1]):'';
+    var responsable=d.responsable_id?escHtml(d.responsable_id[1]):'';
     return '<div class="dept-card">'
       +'<div class="dept-card-main">'
       +'<div class="dept-card-name">'+escHtml(d.name)+'</div>'
       +'<div class="dept-card-meta">'+nw+' trabajador'+(nw!==1?'es':'')+(no?' · '+stTxt:'')+'</div>'
       +(delegChips?'<div class="dept-tags" style="margin:6px 0;">'+delegChips+'</div>':'')
+      +(responsable?'<div style="font-size:11px;color:var(--muted);margin-top:3px;">👤 Responsable: <strong>'+responsable+'</strong></div>':'')
       +(entrega?'<div style="font-size:11px;color:var(--muted);margin-top:3px;">📍 Dirección entrega: '+entrega+'</div>':'')
       +'</div>'
       +'<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0;">'

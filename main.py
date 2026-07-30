@@ -677,6 +677,7 @@ async def list_all_departments(session: SessionDep):
                 "delegation_ids",
                 "partner_id",
                 "uniform_ids",
+                "responsable_id",
             ],
             "context": {"lang": "es_ES"},
         },
@@ -718,6 +719,7 @@ async def list_departments(agreement_id: int, session: SessionDep):
                 "delegation_ids",
                 "partner_id",
                 "uniform_ids",
+                "responsable_id",
             ],
             "context": {"lang": "es_ES"},
         },
@@ -771,6 +773,7 @@ async def list_delegations_full(agreement_id: int, session: SessionDep):
                 "worker_ids",
                 "uniform_ids",
                 "partner_id",
+                "responsable_id",
             ],
             "context": {"lang": "es_ES"},
         },
@@ -817,6 +820,7 @@ async def list_delegations_full(agreement_id: int, session: SessionDep):
             "worker_count": nw,
             "order_count": no,
             "partner_id": dept.get("partner_id"),
+            "responsable_id": dept.get("responsable_id"),
         }
         for did in dept.get("delegation_ids", []):
             if did in deleg_map:
@@ -1809,6 +1813,7 @@ async def list_all_delegations_full(session: SessionDep):
                 "worker_ids",
                 "uniform_ids",
                 "partner_id",
+                "responsable_id",
             ],
             "context": {"lang": "es_ES"},
         },
@@ -1845,6 +1850,7 @@ async def list_all_delegations_full(session: SessionDep):
             "worker_count": nw,
             "order_count": no,
             "partner_id": dept.get("partner_id"),
+            "responsable_id": dept.get("responsable_id"),
         }
         for did in dept.get("delegation_ids", []):
             if did in deleg_map:
