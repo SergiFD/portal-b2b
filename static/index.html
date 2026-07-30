@@ -2952,7 +2952,7 @@ function renderDashCards(){
     return '<div class="card'+stateClass+(blocked?' blocked':'')+'" data-id="'+a.id+'">'
       +'<div class="card-eye">'+escHtml(a.name||'')+(dates?' · '+dates:'')+'</div>'
       +'<div class="card-title">'+partner+'</div>'
-      +'<div class="card-meta">'+depts+' departamento'+(depts!==1?'s':'')+(orders?' · '+orders+' pedido'+(orders!==1?'s':''):'')+'</div>'
+      +'<div class="card-meta"><a href="#" onclick="event.stopPropagation();event.preventDefault();openAgreement('+a.id+',\'v-depts\');" style="color:inherit;text-decoration:underline;text-underline-offset:2px;">'+depts+' departamento'+(depts!==1?'s':'')+'</a>'+(orders?' · '+orders+' pedido'+(orders!==1?'s':''):'')+'</div>'
       +conditionBadges
       +sizeBadge
       +'<div class="tags" style="margin-bottom:10px;"><span class="tag '+sl[0]+'">'+sl[1]+'</span></div>'
