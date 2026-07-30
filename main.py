@@ -965,6 +965,7 @@ async def get_worker_deliveries(worker_id: int, session: SessionDep):
             {
                 "fields": [
                     "id",
+                    "picking_type_code",
                     "delivery_signature_date",
                     "delivery_signed_by",
                 ],
@@ -981,6 +982,13 @@ async def get_worker_deliveries(worker_id: int, session: SessionDep):
             m["signed"] = bool(pinfo.get("delivery_signature_date"))
             m["signed_by"] = pinfo.get("delivery_signed_by") or ""
             m["signature_date"] = pinfo.get("delivery_signature_date") or ""
+            # Una devolución valida un albarán de ENTRADA con el mismo
+            # sale_line_id que la entrega original (stock.return.picking
+            # conserva el link) — sin distinguir por picking_type_code aquí,
+            # se contaba como una entrega más en el historial del trabajador.
+            m["move_kind"] = (
+                "return" if pinfo.get("picking_type_code") == "incoming" else "delivery"
+            )
 
     moves.sort(key=lambda m: m.get("date") or "", reverse=True)
     return moves
@@ -1524,8 +1532,10 @@ async def return_line(line_id: int, request: Request, session: SessionDep):
     entrega previa de la línea.
 
     Llama a sale.order.line.action_portal_return (edyma_orders_per_worker).
-    Body opcional: {"quantity": N, "reason": "..."} — por defecto devuelve
-    todo lo entregado.
+    Body opcional: {"quantity": N, "reason": "...", "signature": "<PNG base64>",
+    "signed_by": "..."} — por defecto devuelve todo lo entregado. La firma
+    (capturada con canvas en el portal) se guarda en el albarán de entrada
+    generado, igual que en la entrega.
     """
     _require_role(session, "delegation_manager", "warehouse")
     try:
@@ -1534,12 +1544,14 @@ async def return_line(line_id: int, request: Request, session: SessionDep):
         body = {}
     qty = body.get("quantity")
     reason = body.get("reason") or None
+    signature = body.get("signature") or None
+    signed_by = body.get("signed_by") or None
     quantity_arg = None if qty in (None, "") else float(qty)
     return await _call_kw(
         session,
         "sale.order.line",
         "action_portal_return",
-        [[line_id], quantity_arg, reason],
+        [[line_id], quantity_arg, reason, signature, signed_by],
     )
 
 
