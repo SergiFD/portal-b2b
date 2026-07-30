@@ -103,6 +103,24 @@ async def get_session(portal_token: Annotated[str | None, Cookie()] = None) -> d
 SessionDep = Annotated[dict, Depends(get_session)]
 
 
+def _require_role(session: dict, *allowed: str) -> None:
+    """Gating de roles a nivel de endpoint (Responsable de Delegación /
+    Administrador MY Uniform / Solo consulta / Usuario de almacén).
+
+    'admin' siempre pasa. Los roles se calculan al hacer login llamando a
+    res.users.get_my_uniform_role() (edyma_myuniform) y se guardan en la
+    sesión del portal; ver login() más abajo.
+    """
+    role = session.get("role") or "delegation_manager"
+    if role == "admin":
+        return
+    if role not in allowed:
+        raise HTTPException(
+            status_code=403,
+            detail="Tu rol de usuario no tiene permiso para realizar esta acción.",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Login / Logout
 # ---------------------------------------------------------------------------
@@ -141,13 +159,60 @@ async def login(request: Request, response: Response):
     if not result or not result.get("uid"):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
 
+    role = "delegation_manager"
+    try:
+        role = await _rpc(
+            "/web/dataset/call_kw",
+            {
+                "model": "res.users",
+                "method": "get_my_uniform_role",
+                "args": [[result["uid"]]],
+                "kwargs": {},
+            },
+            odoo_session_id=result.get("session_id"),
+        )
+    except Exception:
+        # Si el método aún no existe (módulo no actualizado) mantenemos el
+        # comportamiento homogéneo de siempre en vez de romper el login.
+        pass
+
     token = secrets.token_urlsafe(32)
+    partner_raw = result.get("partner_id")
+    if isinstance(partner_raw, list):
+        partner_id = partner_raw[0]
+    else:
+        partner_id = partner_raw
+
+    commercial_partner_id = partner_id
+    try:
+        if partner_id:
+            partner_data = await _rpc(
+                "/web/dataset/call_kw",
+                {
+                    "model": "res.partner",
+                    "method": "read",
+                    "args": [[partner_id], ["commercial_partner_id"]],
+                    "kwargs": {"context": {"lang": "es_ES"}},
+                },
+                odoo_session_id=result.get("session_id"),
+            )
+            if isinstance(partner_data, list) and partner_data:
+                commercial_partner_raw = partner_data[0].get("commercial_partner_id")
+                if isinstance(commercial_partner_raw, list):
+                    commercial_partner_id = commercial_partner_raw[0]
+                else:
+                    commercial_partner_id = commercial_partner_raw
+    except Exception:
+        pass
+
     _sessions[token] = {
         "uid": result["uid"],
         "odoo_session_id": result.get("session_id"),
         "name": result.get("name"),
-        "partner_id": result.get("partner_id"),
+        "partner_id": partner_id,
+        "commercial_partner_id": commercial_partner_id,
         "login": body.get("login"),
+        "role": role,
     }
     response.set_cookie(
         "portal_token",
@@ -161,6 +226,7 @@ async def login(request: Request, response: Response):
         "uid": result["uid"],
         "name": result.get("name"),
         "partner_id": result.get("partner_id"),
+        "role": role,
     }
 
 
@@ -194,6 +260,7 @@ async def me(session: SessionDep):
         "partner_id": session["partner_id"],
         "login": session["login"],
         "login_date": login_date,
+        "role": session.get("role") or "delegation_manager",
     }
 
 
@@ -235,13 +302,23 @@ async def list_portal_messages(session: SessionDep, limit: int = 20):
 
 @app.get("/api/portal_promos")
 async def list_portal_promos(session: SessionDep, limit: int = 20):
-    """Promociones/novedades de MY Uniform para el panel Portal.
-    El ir.rule del modelo ya filtra a promos generales + las del propio cliente."""
-    return await _call_kw(
+    """Promociones/novedades de MyUniform para el panel Portal.
+    Se devuelven promociones activas y las específicas del cliente (partner_id vacío = global).
+    También incorpora promociones activas configuradas en acuerdos de cliente.
+
+    El ir.rule uniform_portal_promo_portal_rule ya filtra por
+    user.commercial_partner_id para el grupo portal (general + propio) y no
+    aplica a Administrador MY Uniform (base.group_user), que ve todas. No
+    dupliques ese filtro aquí en Python: session["partner_id"] es el partner
+    de login (para un admin interno, el suyo propio, no el de ningún
+    cliente), así que un dominio adicional aquí solo puede estrechar de más
+    lo que Odoo ya filtra correctamente."""
+    domain = [["active", "=", True]]
+    promos = await _call_kw(
         session,
         "uniform.portal.promo",
         "search_read",
-        [[]],
+        [domain],
         {
             "fields": [
                 "id",
@@ -259,6 +336,38 @@ async def list_portal_promos(session: SessionDep, limit: int = 20):
             "context": {"lang": "es_ES"},
         },
     )
+    agreement_promos = await _call_kw(
+        session,
+        "uniform.agreement",
+        "search_read",
+        [
+            [
+                ["portal_promo", "=", True],
+                ["portal_promo_text", "!=", False],
+                ["portal_promo_text", "!=", ""],
+            ]
+        ],
+        {
+            "fields": ["id", "name", "portal_promo_text", "date_start"],
+            "context": {"lang": "es_ES"},
+        },
+    )
+    for agreement in agreement_promos:
+        promos.append(
+            {
+                "id": f"agreementpromo_{agreement['id']}",
+                "title": agreement.get("name") or "Promoción",
+                "subtitle": agreement.get("portal_promo_text") or "",
+                "image_128": False,
+                "color_from": "#02284F",
+                "color_to": "#1D4ED8",
+                "cta_label": "",
+                "cta_url": "",
+                "date": agreement.get("date_start"),
+            }
+        )
+    promos.sort(key=lambda p: p.get("date") or "", reverse=True)
+    return promos[:limit]
 
 
 @app.get("/api/portal/pending_sizes")
@@ -386,6 +495,30 @@ async def portal_stock_alerts(
 # ---------------------------------------------------------------------------
 
 
+# Campos base + condiciones de pedido/bloqueo de proyecto (portal B2B). Se
+# incluyen ya en el listado del dashboard para poder pintar el badge
+# "bloqueado"/"cond. activas" y la cuenta atrás sin llamadas extra por tarjeta.
+AGREEMENT_FIELDS = [
+    "id",
+    "name",
+    "partner_id",
+    "state",
+    "date_start",
+    "date_end",
+    "department_ids",
+    "order_blocked",
+    "order_blocked_reason",
+    "account_manager_id",
+    "account_manager_phone",
+    "account_manager_email",
+    "order_conditions_active",
+    "order_periodicity_days",
+    "last_order_request_date",
+    "min_garments_per_order",
+    "rush_surcharge_pct",
+]
+
+
 @app.get("/api/agreements")
 async def list_agreements(session: SessionDep):
     return await _call_kw(
@@ -394,15 +527,7 @@ async def list_agreements(session: SessionDep):
         "search_read",
         [[]],
         {
-            "fields": [
-                "id",
-                "name",
-                "partner_id",
-                "state",
-                "date_start",
-                "date_end",
-                "department_ids",
-            ],
+            "fields": AGREEMENT_FIELDS,
             "context": {"lang": "es_ES"},
         },
     )
@@ -416,21 +541,54 @@ async def get_agreement(agreement_id: int, session: SessionDep):
         "read",
         [[agreement_id]],
         {
-            "fields": [
-                "id",
-                "name",
-                "partner_id",
-                "state",
-                "date_start",
-                "date_end",
-                "department_ids",
-            ],
+            "fields": AGREEMENT_FIELDS,
             "context": {"lang": "es_ES"},
         },
     )
     if not records:
         raise HTTPException(404, "Acuerdo no encontrado")
     return records[0]
+
+
+@app.get("/api/agreements/{agreement_id}/order_conditions")
+async def get_agreement_order_conditions(agreement_id: int, session: SessionDep):
+    """Estado de bloqueo/condiciones de pedido para el modal de aviso previo a
+    'Nuevo pedido' (contador regresivo, mínimo de prendas, ficha de la
+    gestora si el proyecto está bloqueado)."""
+    return await _call_kw(
+        session, "uniform.agreement", "get_order_gate_info", [[agreement_id]]
+    )
+
+
+@app.put("/api/agreements/{agreement_id}/order_conditions")
+async def update_agreement_order_conditions(
+    agreement_id: int, request: Request, session: SessionDep
+):
+    """Configuración de condiciones de pedido y bloqueo — decisión de
+    negocio de MY Uniform, solo para el rol Administrador."""
+    _require_role(session, "admin")
+    body = await request.json()
+    allowed_fields = {
+        "order_blocked",
+        "order_blocked_reason",
+        "account_manager_id",
+        "order_conditions_active",
+        "order_periodicity_days",
+        "min_garments_per_order",
+        "rush_surcharge_pct",
+    }
+    vals = {k: v for k, v in body.items() if k in allowed_fields}
+    if not vals:
+        raise HTTPException(400, "Nada que actualizar")
+    await _call_kw(session, "uniform.agreement", "write", [[agreement_id], vals])
+    records = await _call_kw(
+        session,
+        "uniform.agreement",
+        "read",
+        [[agreement_id]],
+        {"fields": AGREEMENT_FIELDS, "context": {"lang": "es_ES"}},
+    )
+    return records[0] if records else {"ok": True}
 
 
 # ---------------------------------------------------------------------------
@@ -712,6 +870,7 @@ async def get_worker(worker_id: int, session: SessionDep):
 
 @app.post("/api/workers")
 async def create_worker(request: Request, session: SessionDep):
+    _require_role(session, "delegation_manager")
     body = await request.json()
     new_id = await _call_kw(session, "uniform.agreement.worker", "create", [body])
     # Devolver el trabajador creado con todos sus campos
@@ -795,8 +954,67 @@ async def get_worker_deliveries(worker_id: int, session: SessionDep):
         sol = line_map.get(m["sale_line_id"][0] if m.get("sale_line_id") else None, {})
         m["product_size_value"] = sol.get("product_size_value", "")
         m["product_color_value"] = sol.get("product_color_value", "")
+
+    picking_ids = list({m["picking_id"][0] for m in moves if m.get("picking_id")})
+    if picking_ids:
+        pickings = await _call_kw(
+            session,
+            "stock.picking",
+            "read",
+            [picking_ids],
+            {
+                "fields": [
+                    "id",
+                    "delivery_signature_date",
+                    "delivery_signed_by",
+                ],
+                "context": {"lang": "es_ES"},
+            },
+        )
+        # No se transmite el binario de la firma en el listado (peso/privacidad);
+        # solo si está firmado, quién y cuándo. La imagen se pide bajo demanda
+        # via GET /api/deliveries/{picking_id}/signature.
+        picking_sig_map = {p["id"]: p for p in pickings}
+        for m in moves:
+            pid = m["picking_id"][0] if m.get("picking_id") else None
+            pinfo = picking_sig_map.get(pid, {})
+            m["signed"] = bool(pinfo.get("delivery_signature_date"))
+            m["signed_by"] = pinfo.get("delivery_signed_by") or ""
+            m["signature_date"] = pinfo.get("delivery_signature_date") or ""
+
     moves.sort(key=lambda m: m.get("date") or "", reverse=True)
     return moves
+
+
+@app.get("/api/deliveries/{picking_id}/signature")
+async def get_delivery_signature(picking_id: int, session: SessionDep):
+    """Firma digital (PNG base64) capturada al entregar este albarán, para
+    mostrarla en el historial de entregas/albaranes."""
+    pickings = await _call_kw(
+        session,
+        "stock.picking",
+        "read",
+        [[picking_id]],
+        {
+            "fields": [
+                "id",
+                "name",
+                "delivery_signature",
+                "delivery_signature_date",
+                "delivery_signed_by",
+            ],
+            "context": {"lang": "es_ES"},
+        },
+    )
+    if not pickings:
+        raise HTTPException(404, "Albarán no encontrado")
+    p = pickings[0]
+    return {
+        "picking": p.get("name"),
+        "signature": p.get("delivery_signature") or None,
+        "signed_by": p.get("delivery_signed_by") or "",
+        "signature_date": p.get("delivery_signature_date") or "",
+    }
 
 
 @app.get("/api/partners/search")
@@ -824,6 +1042,7 @@ async def search_partners(
 
 @app.put("/api/workers/{worker_id}")
 async def update_worker(worker_id: int, request: Request, session: SessionDep):
+    _require_role(session, "delegation_manager")
     body = await request.json()
     await _call_kw(session, "uniform.agreement.worker", "write", [[worker_id], body])
     return {"ok": True}
@@ -877,6 +1096,7 @@ async def list_worker_sizes(worker_id: int, session: SessionDep):
 @app.put("/api/workers/{worker_id}/sizes")
 async def update_worker_sizes(worker_id: int, request: Request, session: SessionDep):
     """Actualiza las tallas de un trabajador. Espera lista de {category_id, size_value_id}."""
+    _require_role(session, "delegation_manager")
     body = await request.json()
     existing = await _call_kw(
         session,
@@ -904,6 +1124,7 @@ async def update_worker_sizes(worker_id: int, request: Request, session: Session
 
 @app.patch("/api/sizes/{size_id}")
 async def patch_size(size_id: int, request: Request, session: SessionDep):
+    _require_role(session, "delegation_manager")
     body = await request.json()
     sv_id = body.get("size_value_id")
     if sv_id:
@@ -930,12 +1151,50 @@ async def list_orders(agreement_id: int, session: SessionDep):
 
 @app.post("/api/orders/{order_id}/confirm")
 async def confirm_order(order_id: int, session: SessionDep):
+    _require_role(session, "delegation_manager")
+    orders = await _call_kw(
+        session,
+        "sale.order",
+        "read",
+        [[order_id]],
+        {
+            "fields": ["id", "uniform_agreement_id", "order_line"],
+            "context": {"lang": "es_ES"},
+        },
+    )
+    if not orders:
+        raise HTTPException(404, "Pedido no encontrado")
+    agreement_raw = orders[0].get("uniform_agreement_id")
+    agreement_id = (
+        agreement_raw[0] if isinstance(agreement_raw, list) else agreement_raw
+    )
+    if agreement_id:
+        gate = await _call_kw(
+            session, "uniform.agreement", "get_order_gate_info", [[agreement_id]]
+        )
+        min_garments = gate.get("min_garments_per_order") or 0
+        if gate.get("conditions_active") and min_garments:
+            lines = await _call_kw(
+                session,
+                "sale.order.line",
+                "search_read",
+                [[["order_id", "=", order_id], ["display_type", "=", False]]],
+                {"fields": ["product_uom_qty"], "context": {"lang": "es_ES"}},
+            )
+            total_qty = sum(l.get("product_uom_qty") or 0 for l in lines)
+            if total_qty < min_garments:
+                raise HTTPException(
+                    409,
+                    f"Este proyecto exige un mínimo de {min_garments} prendas por "
+                    f"pedido; el pedido actual solo suma {total_qty:.0f}.",
+                )
     await _call_kw(session, "sale.order", "action_confirm", [[order_id]])
     return {"ok": True}
 
 
 @app.post("/api/orders/{order_id}/cancel")
 async def cancel_order(order_id: int, session: SessionDep):
+    _require_role(session, "delegation_manager")
     await _call_kw(session, "sale.order", "action_cancel", [[order_id]])
     return {"ok": True}
 
@@ -981,8 +1240,8 @@ async def get_order_deliveries(order_id: int, session: SessionDep):
     return await _call_kw(
         session,
         "stock.picking",
-        "read",
-        [picking_ids],
+        "search_read",
+        [[["id", "in", picking_ids]]],
         {
             "fields": [
                 "id",
@@ -994,7 +1253,10 @@ async def get_order_deliveries(order_id: int, session: SessionDep):
                 "picking_type_id",
                 "origin",
                 "move_ids",
+                "delivery_signature_date",
+                "delivery_signed_by",
             ],
+            "order": "scheduled_date desc, id desc",
             "context": {"lang": "es_ES"},
         },
     )
@@ -1015,8 +1277,8 @@ async def get_order_invoices(order_id: int, session: SessionDep):
     return await _call_kw(
         session,
         "account.move",
-        "read",
-        [invoice_ids],
+        "search_read",
+        [[["id", "in", invoice_ids]]],
         {
             "fields": [
                 "id",
@@ -1031,6 +1293,7 @@ async def get_order_invoices(order_id: int, session: SessionDep):
                 "move_type",
                 "invoice_origin",
             ],
+            "order": "invoice_date desc, id desc",
             "context": {"lang": "es_ES"},
         },
     )
@@ -1196,9 +1459,12 @@ async def list_product_groups(agreement_id: int, session: SessionDep):
 
 @app.post("/api/agreements/{agreement_id}/product_groups")
 async def create_product_group(
-    agreement_id: int, request: Request, session: SessionDep
+    agreement_id: int,
+    request: Request,
+    session: SessionDep,
 ):
     """Agrupa 2+ prendas del acuerdo para compartir un máximo de unidades por trabajador."""
+    _require_role(session, "delegation_manager")
     body = await request.json()
     product_ids = [int(x) for x in (body.get("product_ids") or [])]
     if len(product_ids) < 2:
@@ -1221,6 +1487,7 @@ async def create_product_group(
 
 @app.delete("/api/product_groups/{group_id}")
 async def delete_product_group(group_id: int, session: SessionDep):
+    _require_role(session, "delegation_manager")
     await _call_kw(session, "uniform.agreement.product.group", "unlink", [[group_id]])
     return {"ok": True}
 
@@ -1230,15 +1497,25 @@ async def deliver_line(line_id: int, request: Request, session: SessionDep):
     """Entrega real: valida el albarán de salida de la línea en Odoo.
 
     Llama a sale.order.line.action_portal_deliver (edyma_orders_per_worker).
-    Body opcional: {"quantity": N} — por defecto entrega todo lo pendiente.
+    Body opcional: {"quantity": N, "signature": "<PNG base64>", "signed_by": "..."}
+    — por defecto entrega todo lo pendiente. La firma (capturada con canvas
+    HTML5 en el portal) se guarda en el albarán de salida generado.
     """
+    _require_role(session, "delegation_manager", "warehouse")
     try:
         body = await request.json()
     except Exception:
         body = {}
     qty = body.get("quantity")
-    args = [[line_id]] if qty in (None, "") else [[line_id], float(qty)]
-    return await _call_kw(session, "sale.order.line", "action_portal_deliver", args)
+    quantity_arg = None if qty in (None, "") else float(qty)
+    signature = body.get("signature") or None
+    signed_by = (body.get("signed_by") or "").strip() or None
+    return await _call_kw(
+        session,
+        "sale.order.line",
+        "action_portal_deliver",
+        [[line_id], quantity_arg, signature, signed_by],
+    )
 
 
 @app.post("/api/lines/{line_id}/return")
@@ -1250,6 +1527,7 @@ async def return_line(line_id: int, request: Request, session: SessionDep):
     Body opcional: {"quantity": N, "reason": "..."} — por defecto devuelve
     todo lo entregado.
     """
+    _require_role(session, "delegation_manager", "warehouse")
     try:
         body = await request.json()
     except Exception:
@@ -1445,7 +1723,10 @@ async def list_all_deliveries(session: SessionDep):
                 "picking_type_id",
                 "origin",
                 "move_ids",
+                "delivery_signature_date",
+                "delivery_signed_by",
             ],
+            "order": "scheduled_date desc, id desc",
             "context": {"lang": "es_ES"},
         },
     )
@@ -1477,6 +1758,7 @@ async def list_all_invoices(session: SessionDep):
                 "move_type",
                 "invoice_origin",
             ],
+            "order": "invoice_date desc, id desc",
             "context": {"lang": "es_ES"},
         },
     )
@@ -2044,8 +2326,8 @@ async def list_deliveries(agreement_id: int, session: SessionDep):
     return await _call_kw(
         session,
         "stock.picking",
-        "read",
-        [picking_ids],
+        "search_read",
+        [[["id", "in", picking_ids]]],
         {
             "fields": [
                 "id",
@@ -2057,7 +2339,10 @@ async def list_deliveries(agreement_id: int, session: SessionDep):
                 "picking_type_id",
                 "origin",
                 "move_ids",
+                "delivery_signature_date",
+                "delivery_signed_by",
             ],
+            "order": "scheduled_date desc, id desc",
             "context": {"lang": "es_ES"},
         },
     )
@@ -2101,8 +2386,8 @@ async def list_invoices(agreement_id: int, session: SessionDep):
     return await _call_kw(
         session,
         "account.move",
-        "read",
-        [invoice_ids],
+        "search_read",
+        [[["id", "in", invoice_ids]]],
         {
             "fields": [
                 "id",
@@ -2117,6 +2402,7 @@ async def list_invoices(agreement_id: int, session: SessionDep):
                 "move_type",
                 "invoice_origin",
             ],
+            "order": "invoice_date desc, id desc",
             "context": {"lang": "es_ES"},
         },
     )
@@ -2257,6 +2543,20 @@ async def update_partner(partner_id: int, request: Request, session: SessionDep)
     return {"ok": True}
 
 
+@app.get("/api/internal_users")
+async def list_internal_users(session: SessionDep):
+    """Usuarios internos de MY Uniform, para asignar la gestora de cuenta en
+    las condiciones de pedido (configuración — solo Administrador)."""
+    _require_role(session, "admin")
+    return await _call_kw(
+        session,
+        "res.users",
+        "search_read",
+        [[["share", "=", False], ["active", "=", True]]],
+        {"fields": ["id", "name"], "context": {"lang": "es_ES"}, "limit": 200},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Búsqueda genérica (lista blanca de modelos)
 # ---------------------------------------------------------------------------
@@ -2303,6 +2603,7 @@ async def generic_search(request: Request, session: SessionDep):
 
 @app.post("/api/delegations")
 async def create_delegation(request: Request, session: SessionDep):
+    _require_role(session, "delegation_manager")
     body = await request.json()
     name = (body.get("name") or "").strip()
     if not name:
@@ -2342,6 +2643,7 @@ async def create_delegation(request: Request, session: SessionDep):
 
 @app.post("/api/departments")
 async def create_department(request: Request, session: SessionDep):
+    _require_role(session, "delegation_manager")
     body = await request.json()
     name = (body.get("name") or "").strip()
     if not name:
@@ -2376,6 +2678,7 @@ async def create_department(request: Request, session: SessionDep):
 
 @app.put("/api/departments/{dept_id}")
 async def update_department(dept_id: int, request: Request, session: SessionDep):
+    _require_role(session, "delegation_manager")
     body = await request.json()
     await _call_kw(session, "uniform.agreement.department", "write", [[dept_id], body])
     return {"ok": True}
@@ -2388,6 +2691,20 @@ async def update_department(dept_id: int, request: Request, session: SessionDep)
 
 @app.post("/api/agreements/{agreement_id}/orders")
 async def create_order(agreement_id: int, request: Request, session: SessionDep):
+    """Crea el pedido (sale.order) del proyecto. Antes de crearlo valida el
+    bloqueo y la periodicidad configurados en el acuerdo (condiciones de
+    pedido). Body opcional para pedido urgente fuera de periodicidad:
+    {"rush": true, "signature": "<PNG base64>", "signed_by": "..."}.
+    """
+    _require_role(session, "delegation_manager")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    rush = bool(body.get("rush"))
+    signature = body.get("signature") or None
+    signed_by = (body.get("signed_by") or "").strip() or None
+
     ags = await _call_kw(
         session,
         "uniform.agreement",
@@ -2401,11 +2718,71 @@ async def create_order(agreement_id: int, request: Request, session: SessionDep)
     partner_id = partner_raw[0] if isinstance(partner_raw, list) else partner_raw
     if not partner_id:
         raise HTTPException(400, "El acuerdo no tiene cliente asignado")
-    fields: dict = {
+
+    gate = await _call_kw(
+        session, "uniform.agreement", "get_order_gate_info", [[agreement_id]]
+    )
+    if gate.get("blocked"):
+        raise HTTPException(
+            403,
+            "Los pedidos de este proyecto están bloqueados. Contacta con tu "
+            "gestora de cuenta.",
+        )
+    needs_rush = gate.get("conditions_active") and not gate.get("can_order_now")
+    if needs_rush and not rush:
+        raise HTTPException(
+            409,
+            f"Todavía no puedes crear un nuevo pedido: faltan "
+            f"{gate.get('days_remaining', 0)} día(s) según la periodicidad "
+            f"acordada. Solicita un pedido urgente (+{gate.get('rush_surcharge_pct', 0)}%) si es necesario.",
+        )
+    if needs_rush and rush:
+        if not signature or not signed_by:
+            raise HTTPException(
+                400,
+                "El pedido urgente requiere el nombre y la firma de quien acepta el recargo.",
+            )
+        surcharge_pct = gate.get("rush_surcharge_pct") or 0.0
+        await _call_kw(
+            session,
+            "uniform.order.surcharge.acceptance",
+            "create",
+            [
+                {
+                    "agreement_id": agreement_id,
+                    "signed_name": signed_by,
+                    "signature": signature,
+                    "surcharge_pct": surcharge_pct,
+                }
+            ],
+        )
+
+    fields_vals: dict = {
         "partner_id": partner_id,
         "uniform_agreement_id": agreement_id,
     }
-    new_id = await _call_kw(session, "sale.order", "create", [fields])
+    new_id = await _call_kw(session, "sale.order", "create", [fields_vals])
+
+    if gate.get("conditions_active"):
+        await _call_kw(
+            session, "uniform.agreement", "register_order_requested", [[agreement_id]]
+        )
+    if needs_rush and rush:
+        acceptances = await _call_kw(
+            session,
+            "uniform.order.surcharge.acceptance",
+            "search_read",
+            [[["agreement_id", "=", agreement_id], ["sale_order_id", "=", False]]],
+            {"fields": ["id"], "order": "id desc", "limit": 1},
+        )
+        if acceptances:
+            await _call_kw(
+                session,
+                "uniform.order.surcharge.acceptance",
+                "write",
+                [[acceptances[0]["id"]], {"sale_order_id": new_id}],
+            )
+
     orders = await _call_kw(
         session,
         "sale.order",
@@ -2439,6 +2816,7 @@ async def import_workers(request: Request, session: SessionDep):
     si no, el modelo la autogenera por secuencia) y 'department_ids_text'
     (opcional, uno o varios nombres de departamento separados por coma,
     igual que el asistente nativo de Odoo)."""
+    _require_role(session, "delegation_manager")
     body = await request.json()
     rows = body.get("rows") or []
     if not rows:
@@ -2953,6 +3331,7 @@ async def update_grid_cell(order_id: int, request: Request, session: SessionDep)
     (worker_id, template_id) -> cantidad. Resuelve la variante por talla,
     valida stock disponible y cupo de grupo, y guarda con
     _upsert_order_line (mismo camino que el importador Excel)."""
+    _require_role(session, "delegation_manager")
     body = await request.json()
     worker_id = int(body["worker_id"])
     template_id = int(body["template_id"])
@@ -3135,6 +3514,7 @@ async def update_grid_cell(order_id: int, request: Request, session: SessionDep)
 
 @app.post("/api/orders/{order_id}/lines/import")
 async def import_order_lines(order_id: int, request: Request, session: SessionDep):
+    _require_role(session, "delegation_manager")
     body = await request.json()
     rows = body.get("rows") or []
     if not rows:

@@ -406,6 +406,26 @@ table.atbl tr.total td { background: var(--bg); font-weight: 700; font-family: v
 .sig-box.signed { background:#F0FDFA; color:var(--green); border-style:solid; border-color:var(--green); }
 .delivery-confirmed { background:#ECFDF5; border:1px solid #86EFAC; border-radius:6px; padding:10px 14px; display:flex; align-items:center; gap:10px; margin-top:8px; font-size:12px; color:#166534; }
 
+/* ─── FIRMA DIGITAL (canvas) ──────────────────────────────────── */
+.sig-canvas-wrap { border:2px dashed #0D9488; border-radius:8px; background:#fff; touch-action:none; }
+.sig-canvas-wrap.has-signature { border-style:solid; border-color:var(--green); }
+.sig-thumb { max-height:32px; max-width:90px; border:1px solid var(--border); border-radius:3px; background:#fff; cursor:pointer; }
+
+/* ─── ROLES DE USUARIO: ocultar acciones según rol ───────────────
+   role-hide-readonly: oculto para "Solo consulta".
+   role-hide-non-manager: visible solo para Responsable de Delegación / Administrador. */
+body.role-readonly .role-hide-readonly { display:none !important; }
+body.role-readonly .role-hide-non-manager,
+body.role-warehouse .role-hide-non-manager { display:none !important; }
+.role-admin-only { display:none; }
+
+/* ─── CONDICIONES DE PEDIDO / BLOQUEO DE PROYECTO ────────────────── */
+.card.blocked { background:#FEF2F2; border-color:#FCA5A5; }
+.card-blocked-badge { display:inline-flex; align-items:center; gap:4px; font-family:var(--font-d); font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:#991B1B; background:#FEE2E2; border:1px solid #FECACA; border-radius:4px; padding:2px 8px; margin-bottom:8px; }
+.card-manager-box { background:#fff; border:1px solid #FECACA; border-radius:6px; padding:8px 10px; font-size:11px; color:var(--body); margin:8px 0; }
+.card-conditions-badge { display:inline-flex; align-items:center; gap:4px; font-family:var(--font-d); font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--amber); background:#FFFBEB; border:1px solid #FDE68A; border-radius:4px; padding:2px 8px; margin-bottom:8px; }
+.card-countdown { font-size:11px; color:var(--muted); margin:4px 0 8px; }
+
 /* ─── INVOICES ────────────────────────────────────────────────── */
 .inv-row { display:flex; align-items:center; padding:11px 16px; border-bottom:1px solid var(--bg); gap:14px; cursor:pointer; }
 .inv-row:hover { background:#FAFAFA; }
@@ -676,11 +696,11 @@ table.atbl tr.total td { background: var(--bg); font-weight: 700; font-family: v
       </div>
 
       <div class="portal-grid">
-        <!-- MENSAJES DE MY UNIFORM -->
+        <!-- MENSAJES DE CLIENTES -->
         <div class="portal-card" id="portal-messages-panel" style="display:none;">
           <div class="portal-card-hd">
             <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#02284F" stroke-width="2"><path d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
-            <div class="portal-card-hd-title">Mensajes de MY Uniform</div>
+            <div class="portal-card-hd-title">Mensajes de clientes</div>
             <span class="nav-badge" id="portal-messages-badge" style="margin-left:auto;font-size:10px;display:none;"></span>
           </div>
           <div class="portal-card-body" id="portal-messages-list"></div>
@@ -792,7 +812,7 @@ table.atbl tr.total td { background: var(--bg); font-weight: 700; font-family: v
         </div>
         <div class="ph-right">
           <button class="btn btn-s btn-sm" onclick="show('v-depts',document.querySelector('[onclick*=v-depts]'))">Gestionar departamentos</button>
-          <button class="btn btn-p btn-sm" onclick="openModal('modal-new-deleg')">+ Nueva delegación</button>
+          <button class="btn btn-p btn-sm role-hide-non-manager" onclick="openModal('modal-new-deleg')">+ Nueva delegación</button>
         </div>
       </div>
 
@@ -812,6 +832,7 @@ table.atbl tr.total td { background: var(--bg); font-weight: 700; font-family: v
           <div class="ph-sub" id="proj-ph-sub">—</div>
         </div>
         <div class="ph-right">
+          <button class="btn btn-g btn-sm role-admin-only" onclick="openOrderConditionsEditModal()">⚙ Condiciones de pedido</button>
           <button class="btn btn-s btn-sm" onclick="show('v-workers',document.querySelector('[onclick*=v-workers]'))">Ver trabajadores</button>
           <button class="btn btn-s btn-sm" onclick="show('v-orders',document.querySelector('[onclick*=v-orders]'))">Ver pedidos</button>
           <button class="btn btn-p btn-sm" onclick="show('v-divide',document.querySelector('[onclick*=v-divide]'))">Hacer nuevo pedido</button>
@@ -904,11 +925,11 @@ table.atbl tr.total td { background: var(--bg); font-weight: 700; font-family: v
             <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
             Exportar
           </button>
-          <button class="btn btn-s btn-sm" onclick="openImportWorkersModal()">
+          <button class="btn btn-s btn-sm role-hide-non-manager" onclick="openImportWorkersModal()">
             <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7-7-7M5 12h14"/></svg>
             Importar
           </button>
-          <button class="btn btn-p btn-sm" onclick="openNewWorkerModal()">+ Nuevo trabajador</button>
+          <button class="btn btn-p btn-sm role-hide-non-manager" onclick="openNewWorkerModal()">+ Nuevo trabajador</button>
         </div>
       </div>
 
@@ -1098,8 +1119,8 @@ table.atbl tr.total td { background: var(--bg); font-weight: 700; font-family: v
             <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
             Plantilla Excel
           </button>
-          <button class="btn btn-sm" style="background:#FEF2F2;color:#DC2626;border:1px solid #FECACA;" onclick="cancelCurrentOrder(this)">🗑 Eliminar</button>
-          <button class="btn btn-p btn-sm" style="background:var(--green);border:none;" onclick="confirmCurrentOrder(this)">✓ Confirmar pedido</button>
+          <button class="btn btn-sm role-hide-non-manager" style="background:#FEF2F2;color:#DC2626;border:1px solid #FECACA;" onclick="cancelCurrentOrder(this)">🗑 Eliminar</button>
+          <button class="btn btn-p btn-sm role-hide-non-manager" style="background:var(--green);border:none;" onclick="confirmCurrentOrder(this)">✓ Confirmar pedido</button>
         </div>
       </div>
 
@@ -1338,6 +1359,10 @@ table.atbl tr.total td { background: var(--bg); font-weight: 700; font-family: v
           <option value="draft">Borrador</option>
           <option value="waiting">Esperando</option>
         </select>
+        <select class="fsel" id="alb-sort-sel" onchange="_filterAlbaran()">
+          <option value="date_desc">Más recientes primero</option>
+          <option value="date_asc">Más antiguos primero</option>
+        </select>
       </div>
       <div class="tw">
         <div style="display:flex;align-items:center;padding:9px 16px;border-bottom:1px solid var(--border);font-family:var(--font-d);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--bg);gap:14px;">
@@ -1347,6 +1372,7 @@ table.atbl tr.total td { background: var(--bg); font-weight: 700; font-family: v
           <div style="min-width:60px;text-align:right;">Líneas</div>
           <div style="flex:1;">Origen</div>
           <div style="min-width:90px;text-align:center;">Estado</div>
+          <div style="min-width:100px;text-align:center;">Firma</div>
         </div>
         <div id="alb-list"><!-- cargado dinámicamente --></div>
       </div>
@@ -1621,6 +1647,10 @@ table.atbl tr.total td { background: var(--bg); font-weight: 700; font-family: v
           <option value="paid">Pagada</option>
           <option value="partial">Parcial</option>
         </select>
+        <select class="fsel" id="inv-sort-sel" onchange="filterInvoices()">
+          <option value="date_desc">Más recientes primero</option>
+          <option value="date_asc">Más antiguos primero</option>
+        </select>
       </div>
 
       <!-- Lista de facturas -->
@@ -1884,16 +1914,76 @@ table.atbl tr.total td { background: var(--bg); font-weight: 700; font-family: v
             <th style="font-family:var(--font-d);font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);padding:8px 10px;text-align:center;">Talla</th>
             <th style="font-family:var(--font-d);font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);padding:8px 10px;text-align:center;">Uds.</th>
             <th style="font-family:var(--font-d);font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);padding:8px 10px;text-align:left;">Albarán</th>
+            <th style="font-family:var(--font-d);font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);padding:8px 10px;text-align:left;">Firma</th>
           </tr>
         </thead>
         <tbody id="wdl-tbody">
-          <tr><td colspan="5" style="padding:24px;text-align:center;color:var(--muted);">Cargando...</td></tr>
+          <tr><td colspan="6" style="padding:24px;text-align:center;color:var(--muted);">Cargando...</td></tr>
         </tbody>
       </table>
     </div>
     <div style="display:flex;align-items:center;gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);">
       <span style="font-size:11px;color:var(--muted);" id="wdl-total">—</span>
       <button class="btn btn-s btn-sm" style="margin-left:auto;" onclick="closeModal('modal-worker-deliveries')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: condiciones de pedido (previo a "+ Nuevo pedido" cuando el proyecto tiene condiciones activas) -->
+<div class="modal-overlay" id="modal-order-conditions">
+  <div class="modal-box" style="max-width:460px;">
+    <div class="modal-hd">
+      <div><div class="modal-title">Condiciones de pedido</div><div class="modal-sub">Este proyecto tiene restricciones de pedido activas</div></div>
+      <button class="modal-close" onclick="closeModal('modal-order-conditions')">×</button>
+    </div>
+    <div style="font-size:13px;color:var(--body);margin-bottom:10px;" id="roc-days">Cargando...</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;" id="roc-min">—</div>
+    <div style="text-align:center;margin-bottom:8px;">
+      <button class="btn btn-p btn-sm" id="roc-normal-btn" style="display:none;" onclick="submitNormalOrderFromModal()">+ Crear pedido</button>
+    </div>
+    <div id="roc-rush-section" style="display:none;border-top:1px solid var(--border);padding-top:14px;margin-top:6px;">
+      <div style="font-family:var(--font-d);font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--amber);margin-bottom:8px;">Pedido urgente — recargo +<span id="roc-pct">5</span>%</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Puedes solicitar un pedido urgente saltándote la periodicidad, aceptando el recargo indicado con tu firma.</div>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Nombre de quien acepta el recargo</label>
+      <input type="text" id="roc-signed-name" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;margin-bottom:10px;" />
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Firma de aceptación</label>
+      <div class="sig-canvas-wrap"><canvas id="roc-sig-canvas" width="400" height="120" style="width:100%;height:100px;display:block;"></canvas></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
+        <button class="btn btn-g btn-sm" onclick="clearSigCanvas('roc-sig-canvas')">Borrar firma</button>
+        <button class="btn btn-sm" style="background:var(--amber);color:#fff;border:none;" onclick="submitRushOrder()">Aceptar recargo y crear pedido urgente</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-s btn-sm" onclick="closeModal('modal-order-conditions')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: configuración de condiciones de pedido / bloqueo (solo Administrador MY Uniform) -->
+<div class="modal-overlay" id="modal-order-conditions-edit">
+  <div class="modal-box" style="max-width:460px;">
+    <div class="modal-hd">
+      <div><div class="modal-title">Configurar condiciones de pedido</div><div class="modal-sub">Decisión de negocio de MY Uniform para este proyecto</div></div>
+      <button class="modal-close" onclick="closeModal('modal-order-conditions-edit')">×</button>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;"><input type="checkbox" id="oce-blocked" style="accent-color:var(--red);" /> Bloquear pedidos de este proyecto</label>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Motivo del bloqueo (visible internamente)</label>
+      <textarea id="oce-blocked-reason" rows="2" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;"></textarea>
+    </div>
+    <div style="margin-bottom:14px;">
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Gestora de cuenta (contacto mostrado si está bloqueado)</label>
+      <select id="oce-manager" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:#fff;"><option>Cargando...</option></select>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;"><input type="checkbox" id="oce-conditions-active" style="accent-color:var(--amber);" /> Activar condiciones de pedido (periodicidad / mínimo)</label>
+    <div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+      <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Periodicidad (días)</label><input type="number" id="oce-periodicity" min="0" style="width:100px;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;" /></div>
+      <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Mínimo prendas/pedido</label><input type="number" id="oce-min-garments" min="0" style="width:120px;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;" /></div>
+      <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Recargo urgente (%)</label><input type="number" id="oce-surcharge" min="0" step="0.5" style="width:100px;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;" /></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-s btn-sm" onclick="closeModal('modal-order-conditions-edit')">Cancelar</button>
+      <button class="btn btn-p btn-sm" id="oce-save-btn" onclick="saveOrderConditionsEdit()">Guardar condiciones</button>
     </div>
   </div>
 </div>
@@ -1995,6 +2085,91 @@ function togglePanel(id) {
   const el = document.getElementById(id);
   if (el) el.classList.toggle('open');
 }
+
+/* === FIRMA DIGITAL — captura con canvas HTML5 (entregas) === */
+function toggleDeliveryPanel(panelId, canvasId){
+  togglePanel(panelId);
+  var panel=document.getElementById(panelId);
+  if(panel && panel.classList.contains('open')) initSigCanvas(canvasId);
+}
+function initSigCanvas(canvasId){
+  var canvas=document.getElementById(canvasId);
+  if(!canvas || canvas._sigInit) return;
+  canvas._sigInit=true;
+  canvas._hasInk=false;
+  var ctx=canvas.getContext('2d');
+  ctx.strokeStyle='#111827'; ctx.lineWidth=2.2; ctx.lineCap='round'; ctx.lineJoin='round';
+  var drawing=false;
+  function pos(e){
+    var rect=canvas.getBoundingClientRect();
+    var t=(e.touches&&e.touches[0])||e;
+    return {x:(t.clientX-rect.left)*(canvas.width/rect.width), y:(t.clientY-rect.top)*(canvas.height/rect.height)};
+  }
+  function start(e){drawing=true;canvas._hasInk=true;var p=pos(e);ctx.beginPath();ctx.moveTo(p.x,p.y);var wrap=canvas.closest('.sig-canvas-wrap');if(wrap)wrap.classList.add('has-signature');e.preventDefault();}
+  function move(e){if(!drawing)return;var p=pos(e);ctx.lineTo(p.x,p.y);ctx.stroke();e.preventDefault();}
+  function end(){drawing=false;}
+  canvas.addEventListener('mousedown',start);
+  canvas.addEventListener('mousemove',move);
+  canvas.addEventListener('mouseup',end);
+  canvas.addEventListener('mouseleave',end);
+  canvas.addEventListener('touchstart',start,{passive:false});
+  canvas.addEventListener('touchmove',move,{passive:false});
+  canvas.addEventListener('touchend',end);
+}
+function clearSigCanvas(canvasId){
+  var canvas=document.getElementById(canvasId);
+  if(!canvas)return;
+  var ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  canvas._hasInk=false;
+  var wrap=canvas.closest('.sig-canvas-wrap');
+  if(wrap)wrap.classList.remove('has-signature');
+}
+function sigCanvasDataUrl(canvasId){
+  var canvas=document.getElementById(canvasId);
+  if(!canvas || !canvas._hasInk)return null;
+  return canvas.toDataURL('image/png');
+}
+async function confirmDeliverLine(lineId,pending,panelId,canvasId){
+  var qtyEl=document.getElementById('dp-qty-'+lineId);
+  var nameEl=document.getElementById('dp-name-'+lineId);
+  var qty=parseFloat(String(qtyEl?qtyEl.value:pending).replace(',','.'));
+  if(!(qty>0)||qty>pending){alert('Cantidad no válida (máx. '+pending+').');return;}
+  var signedBy=(nameEl?nameEl.value:'').trim();
+  if(!signedBy){alert('Indica el nombre de quien firma la entrega.');return;}
+  var dataUrl=sigCanvasDataUrl(canvasId);
+  if(!dataUrl){alert('Es necesario firmar en el recuadro para confirmar la entrega.');return;}
+  var signature=dataUrl.split(',')[1];
+  var btn=event&&event.target;
+  if(btn){btn.disabled=true;btn.textContent='Entregando...';}
+  try{
+    var r=await fetch('/api/lines/'+lineId+'/deliver',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({quantity:qty,signature:signature,signed_by:signedBy})});
+    var data=await r.json().catch(function(){return{};});
+    if(!r.ok)throw new Error(data.detail||('HTTP '+r.status));
+    alert('Entrega registrada y firmada. Albarán: '+(data.picking||'—'));
+    loadWorkerGarments();
+  }catch(e){
+    alert('Error al entregar: '+(e.message||e));
+    if(btn){btn.disabled=false;btn.textContent='✓ Confirmar entrega';}
+  }
+}
+async function viewDeliverySignature(pickingId){
+  if(!pickingId)return;
+  try{
+    var r=await fetch('/api/deliveries/'+pickingId+'/signature');
+    if(r.status===401){doLogout();return;}
+    var data=await r.json();
+    if(!data.signature){alert('Este albarán no tiene firma digital registrada.');return;}
+    var w=window.open('', '_blank', 'width=420,height=340');
+    if(!w){alert('Firmado por '+(data.signed_by||'—')+' · '+fmtDate(data.signature_date||''));return;}
+    w.document.write('<title>Firma — '+(data.picking||'')+'</title>'
+      +'<body style="margin:0;padding:20px;font-family:sans-serif;text-align:center;">'
+      +'<img src="data:image/png;base64,'+data.signature+'" style="max-width:100%;border:1px solid #ddd;border-radius:6px;" />'
+      +'<p style="font-size:13px;color:#374151;">Firmado por <strong>'+(data.signed_by||'—')+'</strong><br>'+fmtDate(data.signature_date||'')+' · Albarán '+(data.picking||'')+'</p>'
+      +'</body>');
+  }catch(e){alert('Error obteniendo la firma: '+(e.message||e));}
+}
+
 function toggleHistory(id) {
   const el = document.getElementById(id);
   if (el) el.classList.toggle('open');
@@ -2174,6 +2349,8 @@ async function doLogin() {
     var _ta=document.getElementById('topbar-avatar');if(_ta)_ta.textContent=initials;
     document.getElementById('sb-uname').textContent  = data.name || email;
     _agreements = agreements;
+    _currentRole = data.role || 'delegation_manager';
+    applyRoleUI();
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = '';
     show('v-portal', document.querySelector('.nav-it'));
@@ -2202,6 +2379,14 @@ function closeSb(){document.querySelector('.sb').classList.remove('open');docume
 var _agreements=[];
 var _currentAgreementId=null;
 function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function jsQuote(s){return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n').replace(/\r/g,'\\r');}
+function openProductsForStockAlert(search){
+  if(!search){return;}
+  var searchInput=document.getElementById('prod-search');
+  if(searchInput){searchInput.value=search;}
+  loadProducts(1, search);
+  show('v-products', document.querySelector('.nav-it[onclick*=v-products]'));
+}
 var _COLOR_HEX={'azul marino':'#1B3A6B','negro':'#1F2937','azul rey':'#2563EB','gris':'#9CA3AF','gris oscuro':'#6B7280','rojo':'#DC2626','blanco':'#E5E7EB','verde':'#059669','amarillo':'#D97706','naranja':'#EA580C','marron':'#92400E','marrón':'#92400E','beige':'#D4A373','azul':'#3B82F6','rosa':'#EC4899','morado':'#7C3AED'};
 function colorDot(name){if(!name)return '';var hex=_COLOR_HEX[(name||'').toLowerCase()]||'#9CA3AF';return '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+hex+';margin-right:4px;vertical-align:middle;flex-shrink:0;border:1px solid rgba(0,0,0,.12);"></span>';}
 function openAgreement(id,view){
@@ -2237,6 +2422,42 @@ var STATE_LABELS={
   sale:['t-red','Confirmado'],confirmed:['t-red','Confirmado'],
   progress:['t-blue','En curso'],done:['t-done','Completado'],cancel:['t-grey','Cancelado']
 };
+
+/* === ROLES DE USUARIO (Responsable de Delegación / Administrador MY Uniform / Solo consulta / Usuario de almacén) === */
+var _currentRole='delegation_manager';
+var ROLE_LABELS={
+  admin:'Administrador MY Uniform',
+  delegation_manager:'Responsable de Delegación',
+  readonly:'Solo consulta',
+  warehouse:'Usuario de almacén'
+};
+function roleCan(){
+  // roleCan('delegation_manager','warehouse') -> true si el rol actual está en la lista, o es admin
+  if(_currentRole==='admin')return true;
+  for(var i=0;i<arguments.length;i++){if(arguments[i]===_currentRole)return true;}
+  return false;
+}
+// Navegaciones del sidebar visibles por rol. 'readonly' ve todo el árbol de
+// navegación (solo se le ocultan botones de acción), 'warehouse' solo ve las
+// vistas de su ámbito (Todas las Prendas, Albaranes, Trabajadores para poder
+// llegar a Prendas del Trabajador, y su Perfil).
+var WAREHOUSE_NAV_IDS=['v-portal','v-workers','v-products','v-albaran','v-profile'];
+function applyRoleUI(){
+  var roleLabelEl=document.querySelector('.sb-urole');
+  if(roleLabelEl)roleLabelEl.textContent=ROLE_LABELS[_currentRole]||_currentRole;
+  document.body.classList.toggle('role-readonly', _currentRole==='readonly');
+  document.body.classList.toggle('role-warehouse', _currentRole==='warehouse');
+  if(_currentRole==='warehouse'){
+    document.querySelectorAll('.sb-nav .sb-label').forEach(function(el){el.style.display='none';});
+    document.querySelectorAll('.sb-nav .nav-it').forEach(function(el){
+      var onclick=el.getAttribute('onclick')||'';
+      var match=WAREHOUSE_NAV_IDS.some(function(id){return onclick.indexOf("'"+id+"'")!==-1;});
+      el.style.display=match?'':'none';
+    });
+  }
+  var adminOnly=document.querySelectorAll('.role-admin-only');
+  adminOnly.forEach(function(el){el.style.display=(_currentRole==='admin')?'':'none';});
+}
 
 var _portalPanels={msgs:false,promos:false,sizes:false,stock:false};
 function _portalCheckEmptyState(){
@@ -2283,7 +2504,9 @@ async function loadPortalMessages(){
       return;
     }
     list.innerHTML=msgs.map(function(m){
-      return '<div class="portal-msg">'+escHtml(m.body||'')
+      return '<div class="portal-msg">'
+        +'<div style="margin-bottom:8px;">'+escHtml(m.body||'')+'</div>'
+        +(m.partner_id?'<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Cliente: '+escHtml(m.partner_id[1])+'</div>':'')
         +'<div class="portal-msg-date">'+fmtDate(m.date)+'</div>'
         +'</div>';
     }).join('');
@@ -2390,14 +2613,16 @@ async function loadPortalStockAlerts(){
       var barColor=pct<5?'#EF4444':'#F97316';
       var numColor=pct<5?'#991B1B':'#C2410C';
       var loc=[row.delegation_name,row.dept_name].filter(function(x){return !!x;}).join(' · ');
+      var searchParam = row.product_name? 'decodeURIComponent(\''+encodeURIComponent(row.product_name)+'\')' : "''";
       return '<div class="portal-stock-row">'
         +'<div style="flex:1;min-width:0;">'
           +'<div style="font-weight:600;font-size:12px;">'+escHtml(row.product_name)+'</div>'
           +'<div style="font-size:11px;color:var(--muted);">'+(row.size?'Talla '+escHtml(row.size)+(loc?' · ':''):'')+escHtml(loc)+'</div>'
         +'</div>'
-        +'<div style="text-align:right;flex-shrink:0;">'
+        +'<div style="text-align:right;flex-shrink:0;display:flex;align-items:center;gap:8px;flex-direction:column;">'
           +'<div style="font-family:var(--font-m);font-size:11px;font-weight:700;color:'+numColor+';">'+Math.round(row.remaining)+' / '+Math.round(row.total)+'</div>'
           +'<div style="font-size:10px;color:var(--muted);">'+pct+'%</div>'
+          +'<button class="btn btn-s btn-sm" style="margin-top:6px;white-space:nowrap;" onclick="event.stopPropagation();openProductsForStockAlert('+searchParam+')">Ver prendas</button>'
         +'</div>'
         +'<div style="width:50px;"><div class="portal-stock-bar"><div class="portal-stock-fill" style="width:'+pct+'%;background:'+barColor+';"></div></div></div>'
       +'</div>';
@@ -2471,6 +2696,14 @@ function renderDashStats(agreements){
   e=document.getElementById('stat-entregadas'); if(e)e.textContent='—';
 }
 
+function _agreementDaysRemaining(a){
+  if(!a.order_conditions_active||!a.order_periodicity_days||!a.last_order_request_date)return 0;
+  var last=new Date(a.last_order_request_date+'T00:00:00');
+  var next=new Date(last.getTime()+a.order_periodicity_days*86400000);
+  var today=new Date();today.setHours(0,0,0,0);
+  var diff=Math.ceil((next-today)/86400000);
+  return diff>0?diff:0;
+}
 function renderDashCards(){
   var q=(document.getElementById('dash-q')||{}).value||'';
   var deleg=(document.getElementById('dash-deleg')||{}).value||'';
@@ -2491,11 +2724,39 @@ function renderDashCards(){
     var orders=_dashOrderCounts[a.id]||0;
     var partner=a.partner_id?escHtml(a.partner_id[1]):'';
     var dates=(a.date_start||'')+(a.date_end?' – '+a.date_end:'');
-    return '<div class="card'+(isDone?' done':'')+'" data-id="'+a.id+'">'
+    var blocked=!!a.order_blocked;
+    var condActive=!!a.order_conditions_active;
+    var daysRem=_agreementDaysRemaining(a);
+    var newOrderBtn;
+    if(blocked){
+      newOrderBtn='';
+    }else if(condActive&&daysRem>0){
+      newOrderBtn='<button class="btn btn-g btn-sm role-hide-non-manager" onclick="event.stopPropagation();openOrderConditionsModal('+a.id+')">+ Nuevo pedido</button>';
+    }else{
+      newOrderBtn='<button class="btn btn-g btn-sm role-hide-non-manager" onclick="event.stopPropagation();openAgreementDivide('+a.id+')">+ Nuevo pedido</button>';
+    }
+    var conditionBadges='';
+    var managerBox='';
+    if(blocked){
+      conditionBadges='<div class="card-blocked-badge">🔒 Pedidos bloqueados</div>';
+      var mgr=a.account_manager_id?escHtml(a.account_manager_id[1]):'tu gestora de cuenta';
+      var phone=a.account_manager_phone?escHtml(a.account_manager_phone):'';
+      var email=a.account_manager_email?escHtml(a.account_manager_email):'';
+      managerBox='<div class="card-manager-box"><strong>'+mgr+'</strong>'
+        +(phone?'<br>☎ '+phone:'')
+        +(email?'<br>✉ <a href="mailto:'+email+'?subject='+encodeURIComponent('Proyecto '+(a.name||'')+' bloqueado')+'" style="color:var(--red);">'+email+'</a>':'')
+        +'</div>';
+    }else if(condActive){
+      conditionBadges='<div class="card-conditions-badge">⏱ Cond. activas</div>'
+        +'<div class="card-countdown">'+(daysRem>0?('Próximo pedido en '+daysRem+' día'+(daysRem!==1?'s':'')):'Ya puedes hacer un nuevo pedido')+'</div>';
+    }
+    return '<div class="card'+(isDone?' done':'')+(blocked?' blocked':'')+'" data-id="'+a.id+'">'
       +'<div class="card-eye">'+escHtml(a.name||'')+(dates?' · '+dates:'')+'</div>'
       +'<div class="card-title">'+partner+'</div>'
       +'<div class="card-meta">'+escHtml(a.name||'')+'</div>'
+      +conditionBadges
       +'<div class="tags" style="margin-bottom:10px;"><span class="tag '+sl[0]+'">'+sl[1]+'</span></div>'
+      +managerBox
       +'<div class="card-nums">'
       +'<div class="cnum"><div class="cnum-v">'+depts+'</div><div class="cnum-l">Deptos</div></div>'
       +'<div class="cnum"><div class="cnum-v">'+orders+'</div><div class="cnum-l">Pedidos</div></div>'
@@ -2504,7 +2765,7 @@ function renderDashCards(){
       +'<button class="btn btn-p btn-sm" onclick="openAgreement('+a.id+',\'v-proj\')">Ver detalle</button>'
       +'<button class="btn btn-s btn-sm" onclick="openAgreement('+a.id+',\'v-workers\')">Trabajadores</button>'
       +'<button class="btn btn-s btn-sm" onclick="openAgreement('+a.id+',\'v-orders\')">Pedidos</button>'
-      +'<button class="btn btn-g btn-sm" onclick="event.stopPropagation();openAgreementDivide('+a.id+')">+ Nuevo pedido</button>'
+      +newOrderBtn
       +'</div>'
       +'</div>';
   }).join('');
@@ -2981,7 +3242,7 @@ function renderWorkers(workers){
       +'<td style="font-family:var(--font-m);font-size:13px;color:'+(w.delivered_count?'var(--green)':'var(--muted)')+';">'+(w.delivered_count||0)+'</td>'
       +'<td><div style="display:flex;gap:5px;">'
       +'<button class="btn btn-p btn-sm" onclick="openWorkerGarments('+w.id+')">Ver prendas</button>'
-      +(w.employment_state==='leave'?'':'<button class="btn btn-g btn-sm" onclick="openWorkerSizes('+w.id+')">Tallar</button>')
+      +(w.employment_state==='leave'?'':'<button class="btn btn-g btn-sm role-hide-non-manager" onclick="openWorkerSizes('+w.id+')">Tallar</button>')
       +'</div></td>'
       +'</tr>';
   }).join('');
@@ -3054,9 +3315,14 @@ async function loadWorkerGarments(){
       var stCls=stDelivMap[stKey]?stDelivMap[stKey][0]:'t-grey';
       var stTxt=stDelivMap[stKey]?stDelivMap[stKey][1]:(stKey||'—');
       var panelId='rp-'+l.id;
+      var dpId='dp-'+l.id;
+      var sigId='sig-'+l.id;
       var returnBtn=rec>0
-        ?'<button class="btn btn-sm" style="background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;white-space:nowrap;font-size:11px;padding:4px 8px;" onclick="togglePanel(\''+panelId+'\')">↩ Devolver</button>'
-        :'<button class="btn btn-sm" style="background:#E5E7EB;color:#9CA3AF;border:none;white-space:nowrap;font-size:11px;padding:4px 8px;" disabled>↩ Devolver</button>';
+        ?'<button class="btn btn-sm role-hide-readonly" style="background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;white-space:nowrap;font-size:11px;padding:4px 8px;" onclick="togglePanel(\''+panelId+'\')">↩ Devolver</button>'
+        :'<button class="btn btn-sm role-hide-readonly" style="background:#E5E7EB;color:#9CA3AF;border:none;white-space:nowrap;font-size:11px;padding:4px 8px;" disabled>↩ Devolver</button>';
+      var deliverBtn=rem>0
+        ?'<button class="btn btn-sm role-hide-readonly" style="background:#0D9488;color:#fff;border:none;white-space:nowrap;font-size:11px;padding:4px 8px;" onclick="toggleDeliveryPanel(\''+dpId+'\',\''+sigId+'\')">Entregar</button>'
+        :'<button class="btn btn-sm role-hide-readonly" style="background:#E5E7EB;color:#9CA3AF;border:none;white-space:nowrap;font-size:11px;padding:4px 8px;" disabled>Entregar</button>';
       return '<tr>'
         +'<td><div class="wname" style="cursor:pointer;" onclick="openProduct('+pid+',\'v-garment\')">'+prodName+'</div></td>'
         +'<td>'+(l.product_color_value?'<span style="display:inline-flex;align-items:center;gap:4px;">'+colorDot(l.product_color_value)+'<span style="font-size:11px;">'+color+'</span></span>':'<span style="color:var(--muted);">—</span>')+'</td>'
@@ -3069,8 +3335,22 @@ async function loadWorkerGarments(){
         +'<td style="text-align:right;font-family:var(--font-m);color:var(--green);">'+rec+'</td>'
         +'<td style="text-align:right;font-family:var(--font-m);color:#0D9488;background:rgba(13,148,136,.05);">'+rec+'</td>'
         +'<td style="text-align:center;"><span class="tag '+stCls+'">'+stTxt+'</span></td>'
-        +'<td>'+returnBtn+'</td>'
+        +'<td><div style="display:flex;gap:5px;">'+deliverBtn+returnBtn+'</div></td>'
         +'</tr>'
+        +'<tr><td colspan="12" style="padding:0;"><div class="delivery-panel" id="'+dpId+'">'
+          +'<div style="font-family:var(--font-d);font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#0D9488;margin-bottom:8px;">Registrar entrega — '+prodName+(talla!=='—'?' ('+talla+')':'')+'</div>'
+          +'<div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px;">'
+            +'<div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Cantidad a entregar</label><input type="number" id="dp-qty-'+l.id+'" value="'+rem+'" min="1" max="'+rem+'" style="width:70px;font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;" /></div>'
+            +'<div style="flex:1;min-width:180px;"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Firmado por</label><input type="text" id="dp-name-'+l.id+'" value="'+escHtml(worker.name||'')+'" style="width:100%;font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;" /></div>'
+          +'</div>'
+          +'<label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Firma digital del trabajador</label>'
+          +'<div class="sig-canvas-wrap"><canvas id="'+sigId+'" width="420" height="120" style="width:100%;height:100px;display:block;"></canvas></div>'
+          +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">'
+            +'<button class="btn btn-g btn-sm" onclick="clearSigCanvas(\''+sigId+'\')">Borrar firma</button>'
+            +'<button class="btn btn-s btn-sm" onclick="togglePanel(\''+dpId+'\')">Cancelar</button>'
+            +'<button class="btn btn-sm" style="background:#0D9488;color:#fff;border:none;" onclick="confirmDeliverLine('+l.id+','+rem+',\''+dpId+'\',\''+sigId+'\')">✓ Confirmar entrega</button>'
+          +'</div>'
+        +'</div></td></tr>'
         +'<tr><td colspan="12" style="padding:0;"><div class="return-panel" id="'+panelId+'">'
           +'<div style="font-family:var(--font-d);font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#991B1B;margin-bottom:8px;">↩ Registrar devolución — '+prodName+(talla!=='—'?' ('+talla+')':'')+'</div>'
           +'<div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">'
@@ -3138,7 +3418,7 @@ async function openWorkerDeliveriesModal(){
     if(r.status===401){doLogout();return;}
     var moves=await r.json();
     if(!moves.length){
-      if(tbody)tbody.innerHTML='<tr><td colspan="5" style="padding:24px;text-align:center;color:var(--muted);">Sin entregas registradas.</td></tr>';
+      if(tbody)tbody.innerHTML='<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--muted);">Sin entregas registradas.</td></tr>';
       if(totalEl)totalEl.textContent='Sin entregas';
       return;
     }
@@ -3149,12 +3429,17 @@ async function openWorkerDeliveriesModal(){
       var prodName=m.product_id?escHtml(m.product_id[1]):'—';
       var talla=m.product_size_value?'<span class="gc-sz">'+escHtml(m.product_size_value)+'</span>':'<span style="color:var(--muted);">—</span>';
       var alb=m.picking_id?escHtml(m.picking_id[1]):'—';
+      var pickingId=m.picking_id?m.picking_id[0]:0;
+      var firmaCell=m.signed
+        ?'<span style="color:var(--green);font-weight:600;cursor:pointer;" title="'+escHtml(m.signed_by||'')+' · '+fmtDate(m.signature_date||'')+'" onclick="viewDeliverySignature('+pickingId+')">✓ Firmado</span>'
+        :'<span class="sig-empty">⚠ Sin firma</span>';
       return '<tr style="border-bottom:1px solid var(--border);">'
         +'<td style="padding:10px;font-family:var(--font-m);font-size:11px;color:var(--muted);">'+fmtDate(m.date||'')+'</td>'
         +'<td style="padding:10px;font-weight:600;color:var(--near-black);">'+prodName+'</td>'
         +'<td style="padding:10px;text-align:center;">'+talla+'</td>'
         +'<td style="padding:10px;text-align:center;font-family:var(--font-m);font-weight:700;">'+qty+'</td>'
         +'<td style="padding:10px;"><span style="font-family:var(--font-m);font-size:11px;color:var(--red);">'+alb+'</span></td>'
+        +'<td style="padding:10px;">'+firmaCell+'</td>'
         +'</tr>';
     }).join('');
     if(totalEl)totalEl.textContent='Total: '+moves.length+' entrega'+(moves.length!==1?'s':'')+' · '+totalUds+' unidad'+(totalUds!==1?'es':'');
@@ -3306,8 +3591,8 @@ function renderOrderCard(o){
   var pendientes=o.stat_pendientes||0;
   var actBtns='';
   if(isDraft){
-    actBtns+='<button class="btn btn-p btn-sm" style="background:var(--green);border:none;" onclick="confirmOrder('+o.id+',this)">Confirmar pedido</button>';
-    if(!recibidas)actBtns+='<button class="btn btn-sm" style="background:#FEF2F2;color:#DC2626;border:1px solid #FECACA;padding:5px 10px;font-size:12px;" onclick="cancelOrder('+o.id+',this)">Eliminar</button>';
+    actBtns+='<button class="btn btn-p btn-sm role-hide-non-manager" style="background:var(--green);border:none;" onclick="confirmOrder('+o.id+',this)">Confirmar pedido</button>';
+    if(!recibidas)actBtns+='<button class="btn btn-sm role-hide-non-manager" style="background:#FEF2F2;color:#DC2626;border:1px solid #FECACA;padding:5px 10px;font-size:12px;" onclick="cancelOrder('+o.id+',this)">Eliminar</button>';
   }
   return '<div class="order-card" style="'+cardStyle+'">'
     +'<div style="min-width:140px;">'
@@ -3350,12 +3635,19 @@ function filterInvoices(){
   if(!tbl||!_invoicesCache||!_invoicesCache.length)return;
   var q=(document.getElementById('inv-search')||{value:''}).value.toLowerCase();
   var st=(document.getElementById('inv-state-sel')||{value:''}).value;
+  var sortSel=(document.getElementById('inv-sort-sel')||{value:'date_desc'}).value;
   var filtered=_invoicesCache.filter(function(inv){
     if(q&&!(inv.name||'').toLowerCase().includes(q)&&!(inv.invoice_origin||'').toLowerCase().includes(q))return false;
     if(st&&inv.payment_state!==st)return false;
     return true;
   });
   if(!filtered.length){tbl.innerHTML='<div style="padding:32px;text-align:center;color:var(--muted);">Sin resultados.</div>';return;}
+  filtered=filtered.slice().sort(function(a,b){
+    var da=a.invoice_date||'';
+    var db=b.invoice_date||'';
+    var cmp=da<db?-1:(da>db?1:(a.id||0)-(b.id||0));
+    return sortSel==='date_asc' ? cmp : -cmp;
+  });
   tbl.innerHTML=filtered.map(_renderInvoiceRow).join('');
 }
 
@@ -3424,6 +3716,9 @@ function _renderAlbaranList(list){
   cont.innerHTML=list.map(function(d){
     var st=_albStMap[d.state]||['t-grey',d.state||''];
     var nLines=d.move_ids?d.move_ids.length:0;
+    var firmaCell=d.delivery_signed_by
+      ?'<span style="color:var(--green);font-weight:600;cursor:pointer;" title="'+escHtml(d.delivery_signed_by||'')+' · '+fmtDate(d.delivery_signature_date||'')+'" onclick="event.stopPropagation();viewDeliverySignature('+d.id+')">✓ Firmado</span>'
+      :'<span class="sig-empty">⚠ Sin firma</span>';
     return '<div class="alb-row">'
       +'<div class="alb-num">'+escHtml(d.name||'')+'</div>'
       +'<div class="alb-worker">'+escHtml(d.partner_id?d.partner_id[1]:'—')+'</div>'
@@ -3431,6 +3726,7 @@ function _renderAlbaranList(list){
       +'<div class="alb-qty">'+nLines+' línea'+(nLines!==1?'s':'')+'</div>'
       +'<div style="flex:1;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escHtml(d.origin||'—')+'</div>'
       +'<div style="min-width:90px;text-align:center;"><span class="tag '+st[0]+'">'+escHtml(st[1])+'</span></div>'
+      +'<div style="min-width:100px;text-align:center;">'+firmaCell+'</div>'
       +'<div style="min-width:80px;text-align:right;"><button class="btn btn-s btn-sm" onclick="event.stopPropagation();downloadDeliveryPdf('+d.id+')">PDF</button></div>'
       +'</div>';
   }).join('');
@@ -3453,6 +3749,7 @@ async function downloadDeliveryPdf(pickingId){
 function _filterAlbaran(){
   var q=(document.getElementById('alb-search')||{value:''}).value.trim().toLowerCase();
   var stSel=(document.getElementById('alb-state-sel')||{value:''}).value;
+  var sortSel=(document.getElementById('alb-sort-sel')||{value:'date_desc'}).value;
   var list=_deliveriesData.filter(function(d){
     if(stSel&&d.state!==stSel)return false;
     if(q){
@@ -3460,6 +3757,12 @@ function _filterAlbaran(){
       if(hay.indexOf(q)===-1)return false;
     }
     return true;
+  });
+  list=list.slice().sort(function(a,b){
+    var da=a.scheduled_date||a.date_done||'';
+    var db=b.scheduled_date||b.date_done||'';
+    var cmp=da<db?-1:(da>db?1:(a.id||0)-(b.id||0));
+    return sortSel==='date_asc' ? cmp : -cmp;
   });
   _renderAlbaranList(list);
 }
@@ -3476,7 +3779,8 @@ async function loadAlbaran(){
     if(ph)ph.textContent=_deliveriesData.length+' albarán'+(_deliveriesData.length!==1?'es':'');
     var searchEl=document.getElementById('alb-search');if(searchEl)searchEl.value='';
     var stSelEl=document.getElementById('alb-state-sel');if(stSelEl)stSelEl.value='';
-    _renderAlbaranList(_deliveriesData);
+    var sortSelEl=document.getElementById('alb-sort-sel');if(sortSelEl)sortSelEl.value='date_desc';
+    _filterAlbaran();
   }catch(e){cont.innerHTML='<div style="padding:32px;text-align:center;color:#DC2626;">Error cargando albaranes.</div>';}
 }
 
@@ -3530,7 +3834,8 @@ async function loadInvoices(){
     var _invAg=_agreements.find(function(a){return a.id===_currentAgreementId;});
     if(ph)ph.textContent=(_invAg?escHtml(_invAg.name||'')+' · ':'')+invoices.length+' factura'+(invoices.length!==1?'s':'');
     if(!invoices.length){tbl.innerHTML='<div style="padding:32px;text-align:center;color:var(--muted);">Sin facturas.</div>';return;}
-    tbl.innerHTML=invoices.map(_renderInvoiceRow).join('');
+    var sortSelEl=document.getElementById('inv-sort-sel');if(sortSelEl)sortSelEl.value='date_desc';
+    filterInvoices();
   }catch(e){tbl.innerHTML='<div style="padding:32px;text-align:center;color:#DC2626;">Error cargando facturas: '+escHtml(String(e))+'</div>';console.warn('loadInvoices',e);}
 }
 
@@ -3813,7 +4118,7 @@ function renderProductsPage(page){
       +'<td style="text-align:right;font-family:var(--font-m);color:#0D9488;font-weight:700;background:rgba(13,148,136,.05);">'+entTrab+'</td>'
       +'<td style="text-align:right;font-family:var(--font-m);color:'+(rem>0?'var(--amber)':'var(--green)')+';">'+rem+'</td>'
       +'<td><button class="btn btn-sm" style="white-space:nowrap;font-size:11px;padding:4px 8px;border:1px solid #0D9488;color:#0D9488;background:#fff;border-radius:4px;" onclick="openProduct('+pid+',\'v-garment-workers\')">Historial ('+entTrab+')</button></td>'
-      +'<td><button class="btn btn-sm" '+(canDeliver?'style="white-space:nowrap;font-size:11px;padding:4px 10px;background:#059669;color:#fff;border:none;border-radius:4px;cursor:pointer;" onclick="deliverLine('+l.id+','+pendEnt+',this)"':'style="white-space:nowrap;font-size:11px;padding:4px 10px;background:#E5E7EB;color:#9CA3AF;border:none;border-radius:4px;cursor:default;" disabled')+'>Entregar</button></td>'
+      +'<td><button class="btn btn-sm role-hide-readonly" '+(canDeliver?'style="white-space:nowrap;font-size:11px;padding:4px 10px;background:#059669;color:#fff;border:none;border-radius:4px;cursor:pointer;" onclick="deliverLine('+l.id+','+pendEnt+',this)"':'style="white-space:nowrap;font-size:11px;padding:4px 10px;background:#E5E7EB;color:#9CA3AF;border:none;border-radius:4px;cursor:default;" disabled')+'>Entregar</button></td>'
       +'</tr>';
   }).join('');
 }
@@ -4769,21 +5074,137 @@ function importDivideExcel(){
    CREAR PEDIDO REAL EN ODOO
    ================================================================ */
 
-async function createNewOrder(){
-  if(!_currentAgreementId){alert('Selecciona un acuerdo primero.');return;}
+async function createNewOrder(extraBody){
+  if(!_currentAgreementId){alert('Selecciona un acuerdo primero.');return false;}
   var btn=document.getElementById('btn-create-order');
   if(btn){btn.disabled=true;btn.textContent='Creando en Odoo...';}
   try{
     var r=await fetch('/api/agreements/'+_currentAgreementId+'/orders',{
-      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(extraBody||{})
     });
     if(!r.ok){var ed=await r.json().catch(function(){return{};});throw new Error(ed.detail||'Error HTTP '+r.status);}
     var order=await r.json();
     _currentOrderId=order.id;
     loadDivide();
+    return true;
   }catch(e){
     alert('Error creando pedido: '+(e.message||e));
     if(btn){btn.disabled=false;btn.textContent='+ Crear nuevo pedido';}
+    return false;
+  }
+}
+
+/* ================================================================
+   CONDICIONES DE PEDIDO / BLOQUEO DE PROYECTO — modal previo a "Nuevo pedido"
+   ================================================================ */
+var _rocInfo=null;
+async function openOrderConditionsModal(agreementId){
+  _currentAgreementId=agreementId;
+  _rocInfo=null;
+  openModal('modal-order-conditions');
+  var daysEl=document.getElementById('roc-days');
+  var minEl=document.getElementById('roc-min');
+  var pctEl=document.getElementById('roc-pct');
+  if(daysEl)daysEl.textContent='Cargando...';
+  if(minEl)minEl.textContent='—';
+  try{
+    var r=await fetch('/api/agreements/'+agreementId+'/order_conditions');
+    if(r.status===401){doLogout();return;}
+    var info=await r.json();
+    _rocInfo=info;
+    if(daysEl)daysEl.textContent=info.days_remaining>0
+      ?('Faltan '+info.days_remaining+' día'+(info.days_remaining!==1?'s':'')+' según la periodicidad acordada ('+info.periodicity_days+' días).')
+      :'Ya puedes hacer un nuevo pedido dentro de la periodicidad.';
+    if(minEl)minEl.textContent=info.min_garments_per_order
+      ?('Este proyecto exige un mínimo de '+info.min_garments_per_order+' prendas por pedido (se valida al confirmarlo).')
+      :'Sin mínimo de prendas configurado.';
+    if(pctEl)pctEl.textContent=info.rush_surcharge_pct;
+    var rushSection=document.getElementById('roc-rush-section');
+    var normalBtn=document.getElementById('roc-normal-btn');
+    if(rushSection)rushSection.style.display=info.can_order_now?'none':'';
+    if(normalBtn)normalBtn.style.display=info.can_order_now?'':'none';
+    if(!info.can_order_now)initSigCanvas('roc-sig-canvas');
+  }catch(e){
+    if(daysEl)daysEl.textContent='Error cargando condiciones.';
+  }
+}
+async function submitNormalOrderFromModal(){
+  var ok=await createNewOrder({});
+  if(ok){
+    closeModal('modal-order-conditions');
+    var navProj=document.getElementById('nav-proj');if(navProj)navProj.classList.remove('nav-disabled');
+    show('v-divide',document.querySelector('.nav-it[onclick*="v-divide"]'));
+  }
+}
+async function submitRushOrder(){
+  var nameEl=document.getElementById('roc-signed-name');
+  var signedBy=(nameEl?nameEl.value:'').trim();
+  if(!signedBy){alert('Indica el nombre de quien acepta el recargo.');return;}
+  var dataUrl=sigCanvasDataUrl('roc-sig-canvas');
+  if(!dataUrl){alert('Es necesario firmar en el recuadro para aceptar el recargo.');return;}
+  var signature=dataUrl.split(',')[1];
+  var ok=await createNewOrder({rush:true,signature:signature,signed_by:signedBy});
+  if(ok){
+    closeModal('modal-order-conditions');
+    var navProj=document.getElementById('nav-proj');if(navProj)navProj.classList.remove('nav-disabled');
+    show('v-divide',document.querySelector('.nav-it[onclick*="v-divide"]'));
+  }
+}
+
+/* ================================================================
+   CONDICIONES DE PEDIDO — configuración (solo Administrador MY Uniform)
+   ================================================================ */
+async function openOrderConditionsEditModal(){
+  if(!_currentAgreementId){alert('Abre primero un proyecto.');return;}
+  openModal('modal-order-conditions-edit');
+  try{
+    var [rInfo,rUsers]=await Promise.all([
+      fetch('/api/agreements/'+_currentAgreementId+'/order_conditions'),
+      fetch('/api/internal_users')
+    ]);
+    var info=await rInfo.json();
+    var users=rUsers.ok?await rUsers.json():[];
+    var sel=document.getElementById('oce-manager');
+    if(sel)sel.innerHTML='<option value="">— Sin asignar —</option>'+users.map(function(u){
+      return '<option value="'+u.id+'">'+escHtml(u.name)+'</option>';
+    }).join('');
+    document.getElementById('oce-blocked').checked=!!info.blocked;
+    document.getElementById('oce-blocked-reason').value=info.blocked_reason||'';
+    document.getElementById('oce-conditions-active').checked=!!info.conditions_active;
+    document.getElementById('oce-periodicity').value=info.periodicity_days||0;
+    document.getElementById('oce-min-garments').value=info.min_garments_per_order||0;
+    document.getElementById('oce-surcharge').value=info.rush_surcharge_pct||5;
+    if(sel && _agreements){
+      var ag=_agreements.find(function(a){return a.id===_currentAgreementId;});
+      if(ag && ag.account_manager_id)sel.value=ag.account_manager_id[0];
+    }
+  }catch(e){alert('Error cargando condiciones: '+(e.message||e));}
+}
+async function saveOrderConditionsEdit(){
+  var btn=document.getElementById('oce-save-btn');
+  if(btn){btn.disabled=true;btn.textContent='Guardando...';}
+  try{
+    var mgrVal=document.getElementById('oce-manager').value;
+    var body={
+      order_blocked: document.getElementById('oce-blocked').checked,
+      order_blocked_reason: document.getElementById('oce-blocked-reason').value,
+      account_manager_id: mgrVal?parseInt(mgrVal):false,
+      order_conditions_active: document.getElementById('oce-conditions-active').checked,
+      order_periodicity_days: parseInt(document.getElementById('oce-periodicity').value||0),
+      min_garments_per_order: parseInt(document.getElementById('oce-min-garments').value||0),
+      rush_surcharge_pct: parseFloat(document.getElementById('oce-surcharge').value||0),
+    };
+    var r=await fetch('/api/agreements/'+_currentAgreementId+'/order_conditions',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var data=await r.json().catch(function(){return{};});
+    if(!r.ok)throw new Error(data.detail||'Error HTTP '+r.status);
+    var idx=_agreements.findIndex(function(a){return a.id===_currentAgreementId;});
+    if(idx!==-1)_agreements[idx]=data;
+    closeModal('modal-order-conditions-edit');
+    alert('Condiciones de pedido actualizadas.');
+  }catch(e){
+    alert('Error guardando: '+(e.message||e));
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='Guardar condiciones';}
   }
 }
 
