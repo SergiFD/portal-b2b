@@ -2086,6 +2086,22 @@ async def get_product(product_id: int, session: SessionDep):
     return rec
 
 
+_SIZE_ORDER = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "XXXL", "3XL", "4XL"]
+
+
+def _size_sort_key(name: str):
+    """Orden natural de tallas: letras en su secuencia habitual, luego
+    numéricas (calzado) de menor a mayor, y cualquier otra cosa al final
+    por orden alfabético."""
+    n = (name or "").strip().upper()
+    if n in _SIZE_ORDER:
+        return (0, _SIZE_ORDER.index(n), "")
+    try:
+        return (1, float(n.replace(",", ".")), "")
+    except ValueError:
+        return (2, 0.0, n)
+
+
 @app.get("/api/products/{product_id}/usage")
 async def get_product_usage(product_id: int, session: SessionDep):
     """Estadísticas y pedidos que contienen esta plantilla de producto.
@@ -2099,7 +2115,7 @@ async def get_product_usage(product_id: int, session: SessionDep):
         {"fields": ["product_tmpl_id"], "context": {"lang": "es_ES"}},
     )
     if not variant_info:
-        return {"total": 0, "pedidas": 0, "entregadas": 0, "orders": []}
+        return {"total": 0, "pedidas": 0, "entregadas": 0, "orders": [], "by_size": []}
     tmpl_raw = variant_info[0].get("product_tmpl_id")
     tmpl_id = tmpl_raw[0] if isinstance(tmpl_raw, list) else tmpl_raw
     variants = await _call_kw(
@@ -2111,7 +2127,7 @@ async def get_product_usage(product_id: int, session: SessionDep):
     )
     variant_ids = [v["id"] for v in variants]
     if not variant_ids:
-        return {"total": 0, "pedidas": 0, "entregadas": 0, "orders": []}
+        return {"total": 0, "pedidas": 0, "entregadas": 0, "orders": [], "by_size": []}
     lines = await _call_kw(
         session,
         "sale.order.line",
@@ -2123,6 +2139,7 @@ async def get_product_usage(product_id: int, session: SessionDep):
                 "order_id",
                 "product_uom_qty",
                 "qty_delivered",
+                "product_size_value",
                 "sol_agreement_id",
                 "sol_delegation_id",
                 "sol_department_ids",
@@ -2132,6 +2149,16 @@ async def get_product_usage(product_id: int, session: SessionDep):
     )
     total_ped = sum((l.get("product_uom_qty") or 0) for l in lines)
     total_ent = sum((l.get("qty_delivered") or 0) for l in lines)
+    by_size_map: dict = {}
+    for l in lines:
+        size = l.get("product_size_value") or "Sin talla"
+        entry = by_size_map.setdefault(size, {"pedidas": 0.0, "entregadas": 0.0})
+        entry["pedidas"] += l.get("product_uom_qty") or 0
+        entry["entregadas"] += l.get("qty_delivered") or 0
+    by_size = [
+        {"size": s, "pedidas": int(v["pedidas"]), "entregadas": int(v["entregadas"])}
+        for s, v in sorted(by_size_map.items(), key=lambda kv: _size_sort_key(kv[0]))
+    ]
     order_map: dict = {}
     for l in lines:
         if not l.get("order_id"):
@@ -2186,6 +2213,7 @@ async def get_product_usage(product_id: int, session: SessionDep):
         "pedidas": int(total_ped),
         "entregadas": int(total_ent),
         "orders": orders,
+        "by_size": by_size,
     }
 
 

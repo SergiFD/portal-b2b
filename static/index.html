@@ -1243,6 +1243,17 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
             <div class="sz-grid" id="gd-sz-grid">
               <span style="font-size:12px;color:var(--muted);">Cargando...</span>
             </div>
+            <div style="margin-top:12px;">
+              <div style="font-family:var(--font-d);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">Desglose por talla</div>
+              <div class="tw">
+                <table>
+                  <thead><tr><th>Talla</th><th style="text-align:right;">Pedidas</th><th style="text-align:right;">Entregadas</th></tr></thead>
+                  <tbody id="gd-size-tbody">
+                    <tr><td colspan="3" style="padding:12px;text-align:center;color:var(--muted);">Cargando...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
             <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;text-align:center;">
               <div><div id="gd-stat-total" style="font-family:var(--font-m);font-size:22px;font-weight:500;color:var(--near-black);">—</div><div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">En acuerdos</div></div>
               <div><div id="gd-stat-ped" style="font-family:var(--font-m);font-size:22px;font-weight:500;color:#B89A00;">—</div><div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Pedidas</div></div>
@@ -4411,6 +4422,8 @@ async function loadGarment(){
   setEl('gd-stat-total','—'); setEl('gd-stat-ped','—'); setEl('gd-stat-ent','—');
   var tbody=document.getElementById('gd-orders-tbody');
   if(tbody)tbody.innerHTML='<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--muted);">Cargando...</td></tr>';
+  var szTbody=document.getElementById('gd-size-tbody');
+  if(szTbody)szTbody.innerHTML='<tr><td colspan="3" style="padding:12px;text-align:center;color:var(--muted);">Cargando...</td></tr>';
   try{
     var r=await fetch('/api/products/'+_currentProductId);
     if(r.status===401){doLogout();return;}
@@ -4448,6 +4461,18 @@ async function loadGarment(){
       setEl('gd-stat-total',usage.total??0);
       setEl('gd-stat-ped',usage.pedidas??0);
       setEl('gd-stat-ent',usage.entregadas??0);
+      if(szTbody){
+        var bySize=usage.by_size||[];
+        szTbody.innerHTML=bySize.length
+          ?bySize.map(function(s){
+            return '<tr>'
+              +'<td><span class="sch">'+escHtml(s.size)+'</span></td>'
+              +'<td style="text-align:right;font-family:var(--font-m);color:#B89A00;font-weight:600;">'+s.pedidas+'</td>'
+              +'<td style="text-align:right;font-family:var(--font-m);color:var(--green);">'+s.entregadas+'</td>'
+              +'</tr>';
+          }).join('')
+          :'<tr><td colspan="3" style="padding:12px;text-align:center;color:var(--muted);">Sin datos por talla.</td></tr>';
+      }
       if(tbody){
         if(!usage.orders||!usage.orders.length){
           tbody.innerHTML='<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--muted);">Sin pedidos con esta prenda.</td></tr>';
@@ -4852,7 +4877,7 @@ var _gwRows=[];
 function renderGwRows(rows){
   var tbody=document.getElementById('gw-tbody');if(!tbody)return;
   if(!rows.length){tbody.innerHTML='<tr><td colspan="9" style="padding:32px;text-align:center;color:var(--muted);">Ningún trabajador coincide con el filtro.</td></tr>';return;}
-  tbody.innerHTML=rows.map(function(x){
+  var html=rows.map(function(x){
     var talla=x.talla||null;
     var tallaHtml=talla?('<span class="sch">'+escHtml(talla)+'</span>'):'<span style="color:var(--amber);">⚠ Sin talla</span>';
     var rem=Math.max(0,(x.asig||0)-(x.rec||0));
@@ -4868,6 +4893,20 @@ function renderGwRows(rows){
       +'<td style="text-align:right;font-family:var(--font-m);color:'+(rem>0?'var(--amber)':'var(--green)')+';">'+rem+'</td>'
       +'</tr>';
   }).join('');
+  var tAsig=rows.reduce(function(s,x){return s+(x.asig||0);},0);
+  var tPed=rows.reduce(function(s,x){return s+(x.ped||0);},0);
+  var tRec=rows.reduce(function(s,x){return s+(x.rec||0);},0);
+  var tEnt=rows.reduce(function(s,x){return s+(x.ent||0);},0);
+  var tRem=rows.reduce(function(s,x){return s+Math.max(0,(x.asig||0)-(x.rec||0));},0);
+  html+='<tr style="border-top:2px solid var(--border);font-weight:700;background:var(--bg);">'
+    +'<td colspan="4" style="font-family:var(--font-d);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);">Total</td>'
+    +'<td style="text-align:right;font-family:var(--font-m);">'+Math.round(tAsig)+'</td>'
+    +'<td style="text-align:right;font-family:var(--font-m);color:var(--blue);">'+Math.round(tPed)+'</td>'
+    +'<td style="text-align:right;font-family:var(--font-m);color:var(--amber);">'+Math.round(tRec)+'</td>'
+    +'<td style="text-align:right;font-family:var(--font-m);color:var(--green);">'+Math.round(tEnt)+'</td>'
+    +'<td style="text-align:right;font-family:var(--font-m);">'+Math.round(tRem)+'</td>'
+    +'</tr>';
+  tbody.innerHTML=html;
 }
 function _filterGarmentWorkers(){
   var q=((document.getElementById('gw-filter-q')||{}).value||'').toLowerCase().trim();
