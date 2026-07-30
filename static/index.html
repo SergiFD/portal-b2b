@@ -275,6 +275,9 @@ table.atbl tr.total td { background: var(--bg); font-weight: 700; font-family: v
 .t-done { background: #F0F4F8; color: var(--red); border: 1.5px solid var(--red); }
 .card.done { border-color: var(--red); background: linear-gradient(135deg,#fff 85%,#E8EEF5 100%); }
 .card.done .card-title { color: var(--red); }
+.card.state-draft { border-color: #FDE68A; background: linear-gradient(135deg,#fff 88%,#FFFBEB 100%); }
+.card.state-cancelled { opacity: .6; background: var(--bg); filter: grayscale(.4); }
+.card.state-cancelled:hover { opacity: .85; }
 
 /* ─── DEPT INFO BLOCK (direcciones) ──────────────────────────── */
 .dept-info { background:#F8FAFC; border:1px solid var(--border); border-radius:5px; padding:8px 12px; font-size:11px; color:var(--muted); line-height:1.6; margin-top:6px; }
@@ -611,11 +614,11 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
       Mis Acuerdos
       <span class="nav-badge" id="sb-nav-badge">5</span>
     </div>
-    <div class="nav-it" onclick="show('v-deleg',this)">
+    <div class="nav-it" onclick="showGlobal('v-deleg',this)">
       <svg class="ic" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M3 21h18M9 8h1m4 0h1M9 12h1m4 0h1M5 21V5a2 2 0 012-2h10a2 2 0 012 2v16"/></svg>
       Delegaciones
     </div>
-    <div class="nav-it" onclick="show('v-depts',this)">
+    <div class="nav-it" onclick="showGlobal('v-depts',this)">
       <svg class="ic" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
       Departamentos
     </div>
@@ -624,16 +627,16 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
       Detalle Acuerdo
     </div>
     <div class="sb-label">Trabajadores</div>
-    <div class="nav-it" onclick="show('v-workers',this)">
+    <div class="nav-it" onclick="showGlobal('v-workers',this)">
       <svg class="ic" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
       Trabajadores
     </div>
-    <div class="nav-it" onclick="show('v-orders',this)">
+    <div class="nav-it" onclick="showGlobal('v-orders',this)">
       <svg class="ic" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
       Pedidos
     </div>
     <div class="sb-label">Inventario</div>
-    <div class="nav-it" onclick="show('v-products',this)">
+    <div class="nav-it" onclick="showGlobal('v-products',this)">
       <svg class="ic" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
       Todas las Prendas
     </div>
@@ -780,6 +783,11 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
           <div class="stat-lbl">Departamentos</div>
           <div class="stat-val" id="stat-prendas">—</div>
           <div class="stat-sub">en todos los acuerdos</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-lbl">Total prendas</div>
+          <div class="stat-val" id="stat-total-prendas">—</div>
+          <div class="stat-sub">pedidas en todos los acuerdos</div>
         </div>
         <div class="stat-box">
           <div class="stat-lbl">Pedidos</div>
@@ -948,6 +956,12 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
 
       <div class="fbar">
         <input class="finput" id="workers-search" placeholder="Buscar trabajador…" oninput="_filterWorkers()" />
+        <select class="fsel" id="workers-state-sel" onchange="_filterWorkers()">
+          <option value="">Todos los estados</option>
+          <option value="working">Trabajando</option>
+          <option value="leave">Baja</option>
+          <option value="pending">Pendiente alta</option>
+        </select>
         <select class="fsel" id="workers-dept-sel" onchange="_filterWorkers()"><option value="">Todos los departamentos</option></select>
         <select class="fsel" id="workers-sort" onchange="_filterWorkers()">
           <option value="name-asc">Nombre A→Z</option>
@@ -1397,6 +1411,7 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
           <div style="flex:1;">Origen</div>
           <div style="min-width:90px;text-align:center;">Estado</div>
           <div style="min-width:100px;text-align:center;">Firma</div>
+          <div style="min-width:80px;text-align:right;">PDF</div>
         </div>
         <div id="alb-list"><!-- cargado dinámicamente --></div>
       </div>
@@ -1680,11 +1695,12 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
       <!-- Lista de facturas -->
       <div id="inv-list-view">
         <div style="background:var(--white);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
-          <div style="display:grid;grid-template-columns:160px 1fr 90px 120px 110px;gap:0;padding:8px 16px;background:var(--bg);border-bottom:1px solid var(--border);font-family:var(--font-d);font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);">
-            <div>Factura</div><div>Origen</div><div>Fecha</div><div style="text-align:right;">Importe</div><div style="text-align:center;">Estado</div>
+          <div style="display:grid;grid-template-columns:160px 1fr 120px 90px 120px 110px;gap:0;padding:8px 16px;background:var(--bg);border-bottom:1px solid var(--border);font-family:var(--font-d);font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);">
+            <div>Factura</div><div>Descripción</div><div>Pedido</div><div>Fecha</div><div style="text-align:right;">Importe</div><div style="text-align:center;">Estado</div>
           </div>
           <div id="inv-table-body"><!-- cargado dinámicamente --></div>
         </div>
+        <div id="inv-pager" style="display:flex;align-items:center;justify-content:center;margin-top:14px;"></div>
       </div>
 
       <!-- Detalle FAC-2025-0089 -->
@@ -2108,6 +2124,16 @@ function _navToStack(idx) {
   if (_viewLoaders && _viewLoaders[target.id]) _viewLoaders[target.id]();
 }
 
+/* Navegación desde el sidebar a una vista "global" (Delegaciones,
+   Departamentos, Trabajadores, Pedidos, Todas las Prendas): _currentAgreementId
+   es una variable pegajosa que solo se limpia en flujos muy concretos — si
+   venías de haber entrado en un proyecto, esas vistas se quedaban filtradas a
+   ese único acuerdo aunque hubieras pulsado el enlace general del menú. */
+function showGlobal(id, navEl){
+  _currentAgreementId=null;
+  updateProjFilterBar();
+  show(id, navEl);
+}
 function show(id, navEl) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('on'));
   document.querySelectorAll('.nav-it').forEach(n => n.classList.remove('on'));
@@ -2523,6 +2549,16 @@ var STATE_LABELS={
   sale:['t-red','Confirmado'],confirmed:['t-red','Confirmado'],
   progress:['t-blue','En curso'],done:['t-done','Completado'],cancel:['t-grey','Cancelado']
 };
+/* uniform.agreement tiene su propio vocabulario de estados (draft/confirmed/
+   cancelled), distinto del de sale.order (arriba) — reutilizar STATE_LABELS
+   para tarjetas de acuerdo hacía que "cancelled" (con doble L, el valor real)
+   no encontrase clave y que la tarjeta done nunca se aplicase (ese estado no
+   existe en este modelo). */
+var AGREEMENT_STATE_LABELS={
+  draft:['t-amber','Negociación'],
+  confirmed:['t-red','Confirmado'],
+  cancelled:['t-grey','Cancelado']
+};
 
 /* === ROLES DE USUARIO (Responsable de Delegación / Administrador MY Uniform / Solo consulta / Usuario de almacén) === */
 var _currentRole='delegation_manager';
@@ -2744,6 +2780,7 @@ function loadPortalView(){
 var _dashOrderCounts={};
 var _dashOrderSeasons={};
 var _dashMissingSizes={};
+var _dashAgreementStats={};
 var _dashWorkerIndex={};
 async function _loadDashWorkerStats(){
   try{
@@ -2786,7 +2823,7 @@ async function loadDash(){
     var selD=document.getElementById('dash-deleg');
     if(selD)selD.innerHTML='<option value="">Todas las delegaciones</option>'+[...partners].map(function(p){return '<option value="'+escHtml(p)+'">'+escHtml(p)+'</option>';}).join('');
     var selS=document.getElementById('dash-state');
-    if(selS)selS.innerHTML='<option value="">Todos los estados</option>'+[...states].map(function(s){var lbl=(STATE_LABELS[s]||['',''])[1]||s;return '<option value="'+escHtml(s)+'">'+escHtml(lbl)+'</option>';}).join('');
+    if(selS)selS.innerHTML='<option value="">Todos los estados</option>'+[...states].map(function(s){var lbl=(AGREEMENT_STATE_LABELS[s]||['',''])[1]||s;return '<option value="'+escHtml(s)+'">'+escHtml(lbl)+'</option>';}).join('');
     renderDashStats(_agreements);
     renderDashCards();
     // Cargar estadísticas de pedidos para "Entregadas" y el conteo por acuerdo de las tarjetas
@@ -2799,8 +2836,10 @@ async function loadDash(){
         var _eA=document.getElementById('stat-asignadas');if(_eA)_eA.textContent=allOrders.length;
         var _eE=document.getElementById('stat-entregadas');if(_eE)_eE.textContent=totRec;
         var _eP=document.getElementById('stat-entregadas-pct');if(_eP)_eP.textContent=totPed?Math.round(totRec/totPed*100)+'% del total':'sin pedidos';
+        var _eT=document.getElementById('stat-total-prendas');if(_eT)_eT.textContent=totPed;
         _dashOrderCounts={};
         _dashOrderSeasons={};
+        _dashAgreementStats={};
         allOrders.forEach(function(o){
           var agId=o.uniform_agreement_id?o.uniform_agreement_id[0]:null;
           if(!agId)return;
@@ -2809,6 +2848,10 @@ async function loadDash(){
             if(!_dashOrderSeasons[agId])_dashOrderSeasons[agId]=new Set();
             _dashOrderSeasons[agId].add(o.season);
           }
+          var st=_dashAgreementStats[agId]||{pedidas:0,recibidas:0};
+          st.pedidas+=o.stat_pedidas||0;
+          st.recibidas+=o.stat_recibidas||0;
+          _dashAgreementStats[agId]=st;
         });
         renderDashCards();
       }
@@ -2829,7 +2872,7 @@ async function loadDash(){
 }
 
 function renderDashStats(agreements){
-  var activos=agreements.filter(function(a){return a.state!=='done'&&a.state!=='cancel';}).length;
+  var activos=agreements.filter(function(a){return a.state!=='cancelled';}).length;
   var totalDepts=agreements.reduce(function(s,a){return s+(a.department_ids?a.department_ids.length:0);},0);
   var totalOrders=0;
   var e;
@@ -2869,10 +2912,13 @@ function renderDashCards(){
   var el=document.getElementById('dash-cards');
   if(!filtered.length){el.innerHTML='<div style="padding:40px;text-align:center;color:var(--muted);">Sin resultados.</div>';return;}
   el.innerHTML=filtered.map(function(a){
-    var sl=STATE_LABELS[a.state]||['t-grey',a.state||''];
-    var isDone=a.state==='done';
+    var sl=AGREEMENT_STATE_LABELS[a.state]||['t-grey',a.state||''];
+    var stateClass=a.state==='cancelled'?' state-cancelled':(a.state==='draft'?' state-draft':'');
     var depts=a.department_ids?a.department_ids.length:0;
     var orders=_dashOrderCounts[a.id]||0;
+    var agStats=_dashAgreementStats[a.id]||{pedidas:0,recibidas:0};
+    var agPed=agStats.pedidas,agRec=agStats.recibidas,agRem=Math.max(0,agPed-agRec);
+    var agPct=agPed?Math.round(agRec/agPed*100):0;
     var partner=a.partner_id?escHtml(a.partner_id[1]):'';
     var dates=(a.date_start||'')+(a.date_end?' – '+a.date_end:'');
     var blocked=!!a.order_blocked;
@@ -2882,9 +2928,9 @@ function renderDashCards(){
     if(blocked){
       newOrderBtn='';
     }else if(condActive&&daysRem>0){
-      newOrderBtn='<button class="btn btn-g btn-sm role-hide-non-manager" onclick="event.stopPropagation();openOrderConditionsModal('+a.id+')">+ Nuevo pedido</button>';
+      newOrderBtn='<button class="btn btn-s btn-sm role-hide-non-manager" onclick="event.stopPropagation();openOrderConditionsModal('+a.id+')">+ Nuevo pedido</button>';
     }else{
-      newOrderBtn='<button class="btn btn-g btn-sm role-hide-non-manager" onclick="event.stopPropagation();openAgreementDivide('+a.id+')">+ Nuevo pedido</button>';
+      newOrderBtn='<button class="btn btn-s btn-sm role-hide-non-manager" onclick="event.stopPropagation();openAgreementDivide('+a.id+')">+ Nuevo pedido</button>';
     }
     var missingSizes=_dashMissingSizes[a.id]||0;
     var sizeBadge=missingSizes>0?'<div class="card-tailor-badge" style="display:inline-block;font-size:11px;background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;border-radius:4px;padding:3px 10px;margin-bottom:8px;">⚠ '+missingSizes+' sin talla</div>':'';
@@ -2901,20 +2947,23 @@ function renderDashCards(){
         +'</div>';
     }else if(condActive){
       conditionBadges='<div class="card-conditions-badge">⏱ Cond. activas</div>'
-        +'<div class="card-countdown">'+(daysRem>0?('Próximo pedido en '+daysRem+' día'+(daysRem!==1?'s':'')):'Ya puedes hacer un nuevo pedido')+'</div>';
+        +'<div class="card-countdown">'+(daysRem>0?('Próximo pedido en '+daysRem+' día'+(daysRem!==1?'s':'')):'Ya puedes hacer un nuevo pedido')+(a.min_garments_per_order?' · mín. '+a.min_garments_per_order+' prendas/pedido':'')+'</div>';
     }
-    return '<div class="card'+(isDone?' done':'')+(blocked?' blocked':'')+'" data-id="'+a.id+'">'
+    return '<div class="card'+stateClass+(blocked?' blocked':'')+'" data-id="'+a.id+'">'
       +'<div class="card-eye">'+escHtml(a.name||'')+(dates?' · '+dates:'')+'</div>'
       +'<div class="card-title">'+partner+'</div>'
-      +'<div class="card-meta">'+escHtml(a.name||'')+'</div>'
+      +'<div class="card-meta">'+depts+' departamento'+(depts!==1?'s':'')+(orders?' · '+orders+' pedido'+(orders!==1?'s':''):'')+'</div>'
       +conditionBadges
       +sizeBadge
       +'<div class="tags" style="margin-bottom:10px;"><span class="tag '+sl[0]+'">'+sl[1]+'</span></div>'
       +managerBox
       +'<div class="card-nums">'
-      +'<div class="cnum"><div class="cnum-v">'+depts+'</div><div class="cnum-l">Deptos</div></div>'
-      +'<div class="cnum"><div class="cnum-v">'+orders+'</div><div class="cnum-l">Pedidos</div></div>'
+      +'<div class="cnum"><div class="cnum-v">'+agPed+'</div><div class="cnum-l">Total</div></div>'
+      +'<div class="cnum"><div class="cnum-v" style="opacity:.75">'+agPed+'</div><div class="cnum-l">Asignadas</div></div>'
+      +'<div class="cnum"><div class="cnum-v" style="color:#B89A00">'+agRec+'</div><div class="cnum-l">Entregadas</div></div>'
+      +'<div class="cnum"><div class="cnum-v" style="color:'+(agRem>0?'var(--amber)':'var(--green)')+'">'+agRem+'</div><div class="cnum-l">Restantes</div></div>'
       +'</div>'
+      +'<div class="pb"><div class="del" style="width:'+agPct+'%"></div><div class="rem"></div></div>'
       +'<div class="card-foot">'
       +'<button class="btn btn-p btn-sm" onclick="openAgreement('+a.id+',\'v-proj\')">Ver detalle</button>'
       +'<button class="btn btn-s btn-sm" onclick="openAgreement('+a.id+',\'v-workers\')">Trabajadores</button>'
@@ -3258,10 +3307,12 @@ function _filterWorkers(){
   var q=(document.getElementById('workers-search')||{}).value||'';
   q=q.toLowerCase();
   var deptId=parseInt((document.getElementById('workers-dept-sel')||{}).value||'0')||0;
+  var stateVal=(document.getElementById('workers-state-sel')||{}).value||'';
   var sort=((document.getElementById('workers-sort')||{}).value||'name-asc');
   var workers=(_workersData||[]).filter(function(w){
     if(q&&w.name.toLowerCase().indexOf(q)===-1)return false;
     if(deptId&&(w.department_ids||[]).indexOf(deptId)===-1)return false;
+    if(stateVal&&(w.employment_state||'working')!==stateVal)return false;
     return true;
   });
   workers=workers.slice().sort(function(a,b){
@@ -3762,11 +3813,13 @@ function renderOrderCard(o){
   return '<div class="order-card" style="'+cardStyle+'">'
     +'<div style="min-width:140px;">'
     +'<div class="order-num">'+escHtml(o.name||'')+'</div>'
-    +'<div class="order-workers">'+(nw?nw+' trabajador'+(nw!==1?'es':''):''+(pedidas?' · ':''))+date+'</div>'
+    +'<div class="order-workers">'+(nw?nw+' trabajador'+(nw!==1?'es':'')+' · ':'')+date+'</div>'
     +'</div>'
     +'<div class="order-stats">'
-    +'<div class="ostat"><div class="ostat-v">'+pedidas+'</div><div class="ostat-l">Pedidas</div></div>'
+    +'<div class="ostat"><div class="ostat-v">'+pedidas+'</div><div class="ostat-l">Establecido</div></div>'
+    +'<div class="ostat"><div class="ostat-v" style="color:#B89A00;">'+pedidas+'</div><div class="ostat-l">Pedidas</div></div>'
     +'<div class="ostat"><div class="ostat-v" style="color:var(--green);">'+recibidas+'</div><div class="ostat-l">Recibidas</div></div>'
+    +'<div class="ostat"><div class="ostat-v" style="color:#0D9488;">'+recibidas+'</div><div class="ostat-l">Entregado<br>al trab.</div></div>'
     +'<div class="ostat"><div class="ostat-v" style="color:'+(pendientes?'var(--amber)':'var(--muted)')+'">'+pendientes+'</div><div class="ostat-l">Pendientes</div></div>'
     +'</div>'
     +'<div class="tags">'+stateTag(o.state)+'</div>'
@@ -3795,6 +3848,9 @@ function filterOrders(){
   renderGroupedOrders(cont,filtered);
 }
 
+var INV_PAGE_SIZE=20;
+var _invPage=1;
+var _invFilteredSorted=[];
 function filterInvoices(){
   var tbl=document.getElementById('inv-table-body');
   if(!tbl||!_invoicesCache||!_invoicesCache.length)return;
@@ -3806,14 +3862,43 @@ function filterInvoices(){
     if(st&&inv.payment_state!==st)return false;
     return true;
   });
-  if(!filtered.length){tbl.innerHTML='<div style="padding:32px;text-align:center;color:var(--muted);">Sin resultados.</div>';return;}
   filtered=filtered.slice().sort(function(a,b){
     var da=a.invoice_date||'';
     var db=b.invoice_date||'';
     var cmp=da<db?-1:(da>db?1:(a.id||0)-(b.id||0));
     return sortSel==='date_asc' ? cmp : -cmp;
   });
-  tbl.innerHTML=filtered.map(_renderInvoiceRow).join('');
+  _invFilteredSorted=filtered;
+  _invPage=1;
+  _renderInvoicePage();
+}
+function _renderInvoicePage(){
+  var tbl=document.getElementById('inv-table-body');
+  var pager=document.getElementById('inv-pager');
+  if(!tbl)return;
+  var total=_invFilteredSorted.length;
+  if(!total){
+    tbl.innerHTML='<div style="padding:32px;text-align:center;color:var(--muted);">Sin resultados.</div>';
+    if(pager)pager.innerHTML='';
+    return;
+  }
+  var totalPages=Math.max(1,Math.ceil(total/INV_PAGE_SIZE));
+  if(_invPage>totalPages)_invPage=totalPages;
+  if(_invPage<1)_invPage=1;
+  var start=(_invPage-1)*INV_PAGE_SIZE;
+  tbl.innerHTML=_invFilteredSorted.slice(start,start+INV_PAGE_SIZE).map(_renderInvoiceRow).join('');
+  if(pager){
+    if(totalPages<=1){pager.innerHTML='';}
+    else{
+      pager.innerHTML='<button class="btn btn-s btn-sm" '+(_invPage<=1?'disabled':'')+' onclick="_invChangePage(-1)">‹ Anterior</button>'
+        +'<span style="font-size:12px;color:var(--muted);margin:0 12px;">Página '+_invPage+' de '+totalPages+' · '+total+' factura'+(total!==1?'s':'')+'</span>'
+        +'<button class="btn btn-s btn-sm" '+(_invPage>=totalPages?'disabled':'')+' onclick="_invChangePage(1)">Siguiente ›</button>';
+    }
+  }
+}
+function _invChangePage(delta){
+  _invPage+=delta;
+  _renderInvoicePage();
 }
 
 function filterDeleg(){
@@ -3973,9 +4058,11 @@ function _renderInvoiceRow(inv){
   var pyMap={not_paid:['t-amber','Pendiente'],in_payment:['t-blue','En cobro'],paid:['t-green','Pagada'],partial:['t-amber','Parcial']};
   var st=stMap[inv.state]||['t-grey',inv.state||''];
   var py=pyMap[inv.payment_state]||st;
-  return '<div style="display:grid;grid-template-columns:160px 1fr 90px 120px 110px;gap:0;padding:12px 16px;border-bottom:1px solid var(--bg);align-items:center;cursor:pointer;" onclick="showInvoiceDetail('+inv.id+')">'
+  var desc=inv.narration||('Factura'+(inv.invoice_origin?' del pedido '+inv.invoice_origin:''));
+  return '<div style="display:grid;grid-template-columns:160px 1fr 120px 90px 120px 110px;gap:0;padding:12px 16px;border-bottom:1px solid var(--bg);align-items:center;cursor:pointer;" onclick="showInvoiceDetail('+inv.id+')">'
     +'<div class="inv-num">'+escHtml(inv.name||'—')+'</div>'
-    +'<div style="font-size:13px;color:var(--near-black);">'+escHtml(inv.invoice_origin||'—')+'</div>'
+    +'<div style="font-size:13px;color:var(--near-black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escHtml(desc)+'</div>'
+    +'<div>'+(inv.invoice_origin?'<span class="wcode" style="color:var(--red);">'+escHtml(inv.invoice_origin)+'</span>':'<span style="color:var(--muted);">—</span>')+'</div>'
     +'<div style="font-size:12px;color:var(--muted);">'+fmtDate(inv.invoice_date||'')+'</div>'
     +'<div style="text-align:right;font-family:var(--font-m);font-size:14px;font-weight:500;color:var(--near-black);">'+fmtEur(inv.amount_total||0)+'</div>'
     +'<div style="text-align:center;"><span class="tag '+py[0]+'">'+escHtml(py[1])+'</span></div>'
