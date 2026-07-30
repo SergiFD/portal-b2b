@@ -1961,7 +1961,7 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
       <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Nombre de quien acepta el recargo</label>
       <input type="text" id="roc-signed-name" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;margin-bottom:10px;" />
       <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Firma de aceptación</label>
-      <div class="sig-canvas-wrap"><canvas id="roc-sig-canvas" width="800" height="180" style="width:100%;height:150px;display:block;"></canvas></div>
+      <div class="sig-canvas-wrap"><canvas id="roc-sig-canvas" width="800" height="240" style="width:100%;height:200px;display:block;"></canvas></div>
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
         <button class="btn btn-g btn-sm" onclick="clearSigCanvas('roc-sig-canvas')">Borrar firma</button>
         <button class="btn btn-sm" style="background:var(--amber);color:#fff;border:none;" onclick="submitRushOrder()">Aceptar recargo y crear pedido urgente</button>
@@ -2141,11 +2141,31 @@ function togglePanel(id) {
   if (el) el.classList.toggle('open');
 }
 
-/* === FIRMA DIGITAL — captura con canvas HTML5 (entregas) === */
+/* === FIRMA DIGITAL — captura con canvas HTML5 (entregas/devoluciones) ===
+   Solo un panel de entrega/devolución puede estar abierto a la vez (misma
+   línea o cualquier otra) — evita el efecto confuso de tener "Entregar" y
+   "Devolver" desplegados a la vez sobre la misma prenda. */
+var _openSigPanelId=null;
 function toggleDeliveryPanel(panelId, canvasId){
-  togglePanel(panelId);
   var panel=document.getElementById(panelId);
-  if(panel && panel.classList.contains('open')) initSigCanvas(canvasId);
+  if(!panel)return;
+  var wasOpen=panel.classList.contains('open');
+  if(!wasOpen && _openSigPanelId && _openSigPanelId!==panelId){
+    var prev=document.getElementById(_openSigPanelId);
+    if(prev)prev.classList.remove('open');
+  }
+  panel.classList.toggle('open');
+  if(panel.classList.contains('open')){
+    _openSigPanelId=panelId;
+    initSigCanvas(canvasId);
+  }else if(_openSigPanelId===panelId){
+    _openSigPanelId=null;
+  }
+}
+function closeSigPanel(panelId){
+  var panel=document.getElementById(panelId);
+  if(panel)panel.classList.remove('open');
+  if(_openSigPanelId===panelId)_openSigPanelId=null;
 }
 function initSigCanvas(canvasId){
   var canvas=document.getElementById(canvasId);
@@ -2866,7 +2886,7 @@ function renderDashCards(){
       var email=a.account_manager_email?escHtml(a.account_manager_email):'';
       managerBox='<div class="card-manager-box"><strong>'+mgr+'</strong>'
         +(phone?'<br>☎ '+phone:'')
-        +(email?'<br>✉ <a href="mailto:'+email+'?subject='+encodeURIComponent('Proyecto '+(a.name||'')+' bloqueado')+'" style="color:var(--red);">'+email+'</a>':'')
+        +'<br><a href="#" onclick="event.stopPropagation();event.preventDefault();openContactManagerModal('+a.id+');" style="color:var(--red);">✉ Escribir a '+mgr+'</a>'
         +'</div>';
     }else if(condActive){
       conditionBadges='<div class="card-conditions-badge">⏱ Cond. activas</div>'
@@ -3468,10 +3488,10 @@ async function loadWorkerGarments(){
             +'<div style="flex:1;min-width:180px;"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Firmado por</label><input type="text" id="dp-name-'+l.id+'" value="'+escHtml(worker.name||'')+'" style="width:100%;font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;" /></div>'
           +'</div>'
           +'<label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Firma digital del trabajador</label>'
-          +'<div class="sig-canvas-wrap"><canvas id="'+sigId+'" width="840" height="180" style="width:100%;height:150px;display:block;"></canvas></div>'
+          +'<div class="sig-canvas-wrap"><canvas id="'+sigId+'" width="840" height="240" style="width:100%;height:200px;display:block;"></canvas></div>'
           +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">'
             +'<button class="btn btn-g btn-sm" onclick="clearSigCanvas(\''+sigId+'\')">Borrar firma</button>'
-            +'<button class="btn btn-s btn-sm" onclick="togglePanel(\''+dpId+'\')">Cancelar</button>'
+            +'<button class="btn btn-s btn-sm" onclick="closeSigPanel(\''+dpId+'\')">Cancelar</button>'
             +'<button class="btn btn-sm" style="background:#0D9488;color:#fff;border:none;" onclick="confirmDeliverLine('+l.id+','+rem+',\''+dpId+'\',\''+sigId+'\')">✓ Confirmar entrega</button>'
           +'</div>'
         +'</div></td></tr>'
@@ -3485,10 +3505,10 @@ async function loadWorkerGarments(){
             +'<div style="flex:1;min-width:180px;"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Firmado por</label><input type="text" id="rp-name-'+l.id+'" value="'+escHtml(worker.name||'')+'" style="width:100%;font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;" /></div>'
           +'</div>'
           +'<label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px;">Firma digital del trabajador o responsable</label>'
-          +'<div class="sig-canvas-wrap"><canvas id="'+rsigId+'" width="840" height="180" style="width:100%;height:150px;display:block;"></canvas></div>'
+          +'<div class="sig-canvas-wrap"><canvas id="'+rsigId+'" width="840" height="240" style="width:100%;height:200px;display:block;"></canvas></div>'
           +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">'
             +'<button class="btn btn-g btn-sm" onclick="clearSigCanvas(\''+rsigId+'\')">Borrar firma</button>'
-            +'<button class="btn btn-s btn-sm" onclick="togglePanel(\''+panelId+'\')">Cancelar</button>'
+            +'<button class="btn btn-s btn-sm" onclick="closeSigPanel(\''+panelId+'\')">Cancelar</button>'
             +'<button class="btn btn-sm" style="background:#991B1B;color:#fff;border:none;" onclick="confirmReturnLine('+l.id+','+rec+',\''+panelId+'\',\''+rsigId+'\')">↩ Confirmar devolución</button>'
           +'</div>'
         +'</div></td></tr>';
@@ -4296,7 +4316,7 @@ async function confirmReturnLine(lineId,delivered,panelId,canvasId){
     var data=await r.json().catch(function(){return{};});
     if(!r.ok)throw new Error(data.detail||('HTTP '+r.status));
     alert('Devolución registrada y firmada. Albarán: '+(data.picking||'—'));
-    togglePanel(panelId);
+    closeSigPanel(panelId);
     loadWorkerGarments();
   }catch(e){
     alert('Error al devolver: '+(e.message||e));
@@ -5288,6 +5308,53 @@ async function submitRushOrder(){
     closeModal('modal-order-conditions');
     var navProj=document.getElementById('nav-proj');if(navProj)navProj.classList.remove('nav-disabled');
     show('v-divide',document.querySelector('.nav-it[onclick*="v-divide"]'));
+  }
+}
+
+/* ================================================================
+   ESCRIBIR A LA GESTORA (proyecto bloqueado)
+   ================================================================ */
+var _cmAgreementId=null;
+function openContactManagerModal(agreementId){
+  var a=(_agreements||[]).find(function(x){return x.id===agreementId;});
+  if(!a)return;
+  _cmAgreementId=agreementId;
+  var mgr=a.account_manager_id?a.account_manager_id[1]:'Tu gestora de cuenta';
+  var initials=mgr.split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2)||'?';
+  document.getElementById('cm-project-name').textContent=a.name||'';
+  document.getElementById('cm-agreement-name').value=a.name||'';
+  document.getElementById('cm-avatar').textContent=initials;
+  document.getElementById('cm-name').textContent=mgr;
+  document.getElementById('cm-phone').textContent=a.account_manager_phone?('☎ '+a.account_manager_phone):'';
+  document.getElementById('cm-email').textContent=a.account_manager_email?('✉ '+a.account_manager_email):'';
+  document.getElementById('cm-subject').value='order_request';
+  document.getElementById('cm-message').value='Hola '+mgr+',\n\nEn relación al proyecto "'+(a.name||'')+'", ';
+  document.getElementById('cm-sent-ok').style.display='none';
+  var sendBtn=document.getElementById('cm-send-btn');
+  if(sendBtn){sendBtn.disabled=false;sendBtn.textContent='Enviar mensaje';}
+  openModal('modal-contact-manager');
+}
+async function submitContactManager(){
+  var msgEl=document.getElementById('cm-message');
+  var message=(msgEl.value||'').trim();
+  if(!message){alert('Escribe un mensaje antes de enviarlo.');return;}
+  var subject=document.getElementById('cm-subject').value;
+  var sendBtn=document.getElementById('cm-send-btn');
+  if(sendBtn){sendBtn.disabled=true;sendBtn.textContent='Enviando...';}
+  try{
+    var r=await fetch('/api/agreements/'+_cmAgreementId+'/contact_manager',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({subject:subject,message:message})
+    });
+    if(r.status===401){doLogout();return;}
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    document.getElementById('cm-sent-ok').style.display='';
+    if(sendBtn)sendBtn.textContent='✓ Enviado';
+    setTimeout(function(){closeModal('modal-contact-manager');},1200);
+  }catch(e){
+    alert('No se pudo enviar el mensaje. Inténtalo de nuevo.');
+    if(sendBtn){sendBtn.disabled=false;sendBtn.textContent='Enviar mensaje';}
   }
 }
 
