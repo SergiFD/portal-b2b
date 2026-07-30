@@ -2066,6 +2066,18 @@ async def get_product(product_id: int, session: SessionDep):
         raise HTTPException(404, "Producto no encontrado")
     rec = records[0]
     rec["variant_id"] = product_id
+    # image_1920/512 en product.product cae automáticamente a la plantilla si
+    # la variante no tiene foto propia (image_variant_1920) — leyendo el de
+    # la plantilla aquí siempre se perdía la foto propia de cada variante.
+    variant_img = await _call_kw(
+        session,
+        "product.product",
+        "read",
+        [[product_id]],
+        {"fields": ["image_512"], "context": {"lang": "es_ES"}},
+    )
+    if variant_img and variant_img[0].get("image_512"):
+        rec["image_512"] = variant_img[0]["image_512"]
     line_ids = rec.get("attribute_line_ids") or []
     size_values: list = []
     if line_ids:
@@ -2104,6 +2116,34 @@ async def get_product(product_id: int, session: SessionDep):
             size_values = [{"id": v["id"], "name": v["name"]} for v in values]
     rec["size_values"] = size_values
     return rec
+
+
+@app.get("/api/products/{product_id}/variants")
+async def get_product_variants(product_id: int, session: SessionDep):
+    """Todas las variantes de la misma plantilla que product_id, con su
+    miniatura propia (o heredada de la plantilla si aún no tiene foto
+    propia) — para el selector de foto por variante en Ficha de Prenda."""
+    variant = await _call_kw(
+        session,
+        "product.product",
+        "read",
+        [[product_id]],
+        {"fields": ["product_tmpl_id"], "context": {"lang": "es_ES"}},
+    )
+    if not variant:
+        return []
+    tmpl_raw = variant[0].get("product_tmpl_id")
+    tmpl_id = tmpl_raw[0] if isinstance(tmpl_raw, list) else tmpl_raw
+    return await _call_kw(
+        session,
+        "product.product",
+        "search_read",
+        [[["product_tmpl_id", "=", tmpl_id]]],
+        {
+            "fields": ["id", "display_name", "image_128"],
+            "context": {"lang": "es_ES"},
+        },
+    )
 
 
 _SIZE_ORDER = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "XXXL", "3XL", "4XL"]
