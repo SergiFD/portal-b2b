@@ -401,6 +401,19 @@ table.atbl tr.total td { background: var(--bg); font-weight: 700; font-family: v
 .dept-card-name { font-family:var(--font-d); font-size:16px; font-weight:800; letter-spacing:.04em; color:var(--near-black); }
 .dept-card-meta { font-size:12px; color:var(--muted); margin:3px 0 10px; }
 .deleg-chip { display:inline-flex; align-items:center; gap:4px; background:var(--red-light); color:var(--red); font-family:var(--font-d); font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; padding:3px 9px; border-radius:12px; border:1px solid rgba(2,40,79,.12); }
+/* ─── LOOK DEL UNIFORME (mockup real: muñeco directo, clicable) ───────── */
+.look-panel { background:var(--white); border:1px solid var(--border); border-radius:8px; padding:14px 16px; margin-bottom:18px; display:flex; gap:18px; align-items:flex-start; cursor:pointer; transition:border-color .12s; }
+.look-panel:hover { border-color:rgba(2,40,79,.3); }
+.look-imgs { display:flex; gap:10px; flex-shrink:0; }
+.look-figure { text-align:center; }
+.look-fig-lbl { font-size:10px; font-family:var(--font-d); font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); margin-top:6px; }
+.look-panel-title { font-family:var(--font-d); font-size:11px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+.look-panel-name { font-family:var(--font-d); font-size:17px; font-weight:800; color:var(--near-black); text-transform:uppercase; margin-bottom:4px; }
+.look-panel-items { display:flex; flex-wrap:wrap; gap:5px; }
+.look-item { display:inline-flex; align-items:center; gap:5px; font-size:11px; background:var(--bg); border:1px solid var(--border); border-radius:3px; padding:2px 8px; }
+.dept-look-mini { flex-shrink:0; padding-right:8px; display:flex; flex-direction:column; align-items:center; cursor:pointer; }
+.dept-look-photo { width:44px; height:78px; object-fit:cover; border-radius:6px; border:1px solid var(--border); background:var(--bg); }
+.dept-look-lbl { font-size:9px; font-family:var(--font-d); font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); margin-top:4px; }
 /* ─── NUEVA DELEG footer ───────────────────────────────────── */
 .dept-add-footer { padding:10px 0 4px; border-top:1px dashed var(--border); margin-top:8px; }
 .hist-panel { background:#F0FDFA; border:1.5px solid #0D9488; border-radius:6px; padding:10px 14px; margin:0; display:none; }
@@ -456,6 +469,10 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
 .portal-msg { border-left:3px solid var(--red); background:var(--red-light); border-radius:0 6px 6px 0; padding:10px 14px; margin-bottom:10px; font-size:13px; color:var(--near-black); line-height:1.5; white-space:pre-wrap; }
 .portal-msg:last-child { margin-bottom:0; }
 .portal-msg-date { font-size:10px; color:var(--muted); margin-top:4px; font-family:var(--font-m); }
+.portal-msg-title { font-weight:700; margin-bottom:4px; }
+.portal-msg.pm-reminder { border-left-color:#2563EB; background:#EFF6FF; }
+.portal-msg.pm-stock { border-left-color:#F59E0B; background:#FFFBEB; }
+.portal-msg.pm-success { border-left-color:#059669; background:#ECFDF5; }
 .portal-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; }
 .portal-promo { border-radius:6px; overflow:hidden; border:1px solid var(--border); margin-bottom:10px; }
 .portal-promo:last-child { margin-bottom:0; }
@@ -470,6 +487,11 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
 .portal-stock-fill { height:100%; border-radius:3px; background:#EF4444; }
 .portal-sz-row { display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--bg); font-size:12px; }
 .portal-sz-row:last-child { border-bottom:none; }
+/* Las 4 cajas del Portal (mensajes/promos/tallas/stock) tenían altura sin
+   límite: con muchos resultados la caja crecía indefinidamente en vez de
+   quedarse fija con scroll interno. */
+#portal-messages-list, #portal-promos-list { max-height:420px; overflow-y:auto; }
+#portal-sizes-list, #portal-stock-list { max-height:340px; overflow-y:auto; padding-right:4px; }
 
 /* ─── PEDIDOS LIST ────────────────────────────────────────────── */
 .order-card { background:var(--white); border:1px solid var(--border); border-radius:8px; padding:16px 20px; margin-bottom:10px; display:flex; align-items:center; gap:18px; }
@@ -700,7 +722,18 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
           <div class="ph-title">Portal MY Uniform</div>
           <div class="ph-sub">Comunicaciones, promociones y alertas de tu gestora de cuenta</div>
         </div>
-        <div class="ph-right">
+        <div class="ph-right" style="gap:8px;">
+          <select class="fsel" id="portal-limit-sel" onchange="loadPortalView()" title="Cuántos elementos mostrar por caja">
+            <option value="5">Mostrar 5</option>
+            <option value="10">Mostrar 10</option>
+            <option value="20" selected>Mostrar 20</option>
+            <option value="50">Mostrar 50</option>
+            <option value="0">Mostrar todos</option>
+          </select>
+          <select class="fsel" id="portal-sort-sel" onchange="loadPortalView()" title="Orden de Mensajes y Promociones">
+            <option value="date desc" selected>Más nuevo primero</option>
+            <option value="date asc">Más antiguo primero</option>
+          </select>
           <button class="btn btn-s btn-sm" onclick="portalMarkAllRead()">Marcar todo como leído</button>
         </div>
       </div>
@@ -890,6 +923,19 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
         </div>
       </div>
 
+      <div class="look-panel" id="proj-look-panel" style="display:none;" onclick="openLookModal('agreement',_currentAgreementId)">
+        <div class="look-imgs">
+          <div class="look-figure"><div id="proj-look-summer"></div><div class="look-fig-lbl">Verano</div></div>
+          <div class="look-figure"><div id="proj-look-winter"></div><div class="look-fig-lbl">Invierno</div></div>
+        </div>
+        <div style="flex:1;min-width:0;">
+          <div class="look-panel-title">Look del uniforme</div>
+          <div class="look-panel-name" id="proj-look-name">—</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Prendas con datos de pedido de este proyecto · haz clic para ver el detalle</div>
+          <div class="look-panel-items" id="proj-look-items"></div>
+        </div>
+      </div>
+
       <div class="fbar">
         <input class="finput" id="proj-filter-q" placeholder="Filtrar por prenda…" style="min-width:160px;" oninput="renderProjGarments()" />
       </div>
@@ -1000,6 +1046,9 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
           </tbody>
         </table>
       </div>
+      <div style="padding:12px 16px;border-top:1px solid var(--border);background:var(--white);border-radius:0 0 8px 8px;display:flex;justify-content:flex-end;align-items:center;">
+        <div id="workers-pag-btns" style="display:flex;gap:6px;"></div>
+      </div>
     </div>
 
     <!-- ══════════════════════════════════════════════════ -->
@@ -1096,6 +1145,8 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
           </tbody>
         </table>
       </div>
+
+      <div id="wsz-add-cat" style="margin-bottom:16px;"></div>
 
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
         <span style="font-size:11px;color:var(--muted);">Los cambios de talla se guardan automáticamente en Odoo al seleccionarlos.</span>
@@ -1440,6 +1491,7 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
       </div>
       <div class="fbar">
         <input class="finput" id="prod-search" placeholder="Buscar prenda…" oninput="filterProducts()" />
+        <select class="fsel" id="prod-sel-size" onchange="filterProducts()"><option value="">Todas las tallas</option></select>
         <select class="fsel" id="prod-sel-proj" onchange="filterProducts()"><option value="">Todos los acuerdos</option></select>
         <select class="fsel" id="prod-sel-deleg" onchange="filterProducts()"><option value="">Todas las delegaciones</option></select>
         <select class="fsel" id="prod-sel-dept" onchange="filterProducts()"><option value="">Todos los departamentos</option></select>
@@ -2038,7 +2090,7 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
 <div class="modal-overlay" id="modal-contact-manager">
   <div class="modal-box" style="max-width:460px;">
     <div class="modal-hd">
-      <div><div class="modal-title">Escribir a tu gestora</div><div class="modal-sub" id="cm-project-name">—</div></div>
+      <div><div class="modal-title">Escribir a mi gestora</div><div class="modal-sub" id="cm-project-name">—</div></div>
       <button class="modal-close" onclick="closeModal('modal-contact-manager')">×</button>
     </div>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
@@ -2071,6 +2123,37 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
     <div class="modal-foot">
       <button class="btn btn-s btn-sm" onclick="closeModal('modal-contact-manager')">Cancelar</button>
       <button class="btn btn-p btn-sm" id="cm-send-btn" onclick="submitContactManager()">Enviar mensaje</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Look del uniforme (departamento o proyecto) -->
+<div class="modal-overlay" id="modal-look">
+  <div class="modal-box" style="max-width:640px;">
+    <div class="modal-hd">
+      <div><div class="modal-title">👔 Look del uniforme</div><div class="modal-sub" id="lk-subtitle">—</div></div>
+      <button class="modal-close" onclick="closeModal('modal-look')">×</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;">
+      <button class="btn btn-s btn-sm" id="lk-season-summer" onclick="setLookSeason('summer')">☀ Verano</button>
+      <button class="btn btn-s btn-sm" id="lk-season-winter" onclick="setLookSeason('winter')">❄ Invierno</button>
+    </div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;">
+      <div style="flex-shrink:0;text-align:center;">
+        <div id="lk-figure"></div>
+        <div id="lk-legend" style="font-size:11px;margin-top:10px;text-align:left;"></div>
+      </div>
+      <div style="flex:1;min-width:240px;">
+        <div class="tw" style="max-height:280px;overflow-y:auto;">
+          <table>
+            <thead><tr><th>Prenda</th><th>Código</th><th>Color</th></tr></thead>
+            <tbody id="lk-garments-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-s btn-sm" onclick="closeModal('modal-look')">Cerrar</button>
     </div>
   </div>
 </div>
@@ -2124,6 +2207,8 @@ function _navToStack(idx) {
   document.querySelectorAll('.nav-it').forEach(n => n.classList.remove('on'));
   var el = document.getElementById(target.id);
   if (el) el.classList.add('on');
+  var navEl = document.querySelector('.nav-it[onclick*="'+target.id+'"]');
+  if (navEl) navEl.classList.add('on');
   _renderBreadcrumb();
   window.scrollTo(0, 0);
   if (_viewLoaders && _viewLoaders[target.id]) _viewLoaders[target.id]();
@@ -2140,6 +2225,10 @@ function showGlobal(id, navEl){
   show(id, navEl);
 }
 function show(id, navEl) {
+  if (_currentRole==='readonly' && READONLY_NAV_IDS.indexOf(id)===-1) {
+    id='v-dash';
+    navEl=document.querySelector('.nav-it[onclick*="v-dash"]');
+  }
   document.querySelectorAll('.view').forEach(v => v.classList.remove('on'));
   document.querySelectorAll('.nav-it').forEach(n => n.classList.remove('on'));
   const target = document.getElementById(id);
@@ -2158,6 +2247,9 @@ function showSub(id) {
   const target = document.getElementById(id);
   if (!target) return;
   target.classList.add('on');
+  document.querySelectorAll('.nav-it').forEach(n => n.classList.remove('on'));
+  const navEl = document.querySelector('.nav-it[onclick*="'+id+'"]');
+  if (navEl) navEl.classList.add('on');
   _navStack.push({id: id, label: bcLabels[id] || id});
   _renderBreadcrumb();
   window.scrollTo(0, 0);
@@ -2511,13 +2603,19 @@ function closeSb(){document.querySelector('.sb').classList.remove('open');docume
 var _agreements=[];
 var _currentAgreementId=null;
 function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function stripHtml(s){return String(s||'').replace(/<[^>]*>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ').trim();}
 function jsQuote(s){return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n').replace(/\r/g,'\\r');}
-function openProductsForStockAlert(search){
+async function openProductsForStockAlert(search, size, agreementId){
   if(!search){return;}
   var searchInput=document.getElementById('prod-search');
   if(searchInput){searchInput.value=search;}
-  loadProducts(1, search);
   show('v-products', document.querySelector('.nav-it[onclick*=v-products]'));
+  await loadProducts(1, search);
+  var selSize=document.getElementById('prod-sel-size');
+  if(selSize)selSize.value=size||'';
+  var selProj=document.getElementById('prod-sel-proj');
+  if(selProj)selProj.value=agreementId?String(agreementId):'';
+  filterProducts();
 }
 var _COLOR_HEX={'azul marino':'#1B3A6B','negro':'#1F2937','azul rey':'#2563EB','gris':'#9CA3AF','gris oscuro':'#6B7280','rojo':'#DC2626','blanco':'#E5E7EB','verde':'#059669','amarillo':'#D97706','naranja':'#EA580C','marron':'#92400E','marrón':'#92400E','beige':'#D4A373','azul':'#3B82F6','rosa':'#EC4899','morado':'#7C3AED'};
 function colorDot(name){if(!name)return '';var hex=_COLOR_HEX[(name||'').toLowerCase()]||'#9CA3AF';return '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+hex+';margin-right:4px;vertical-align:middle;flex-shrink:0;border:1px solid rgba(0,0,0,.12);"></span>';}
@@ -2579,21 +2677,24 @@ function roleCan(){
   for(var i=0;i<arguments.length;i++){if(arguments[i]===_currentRole)return true;}
   return false;
 }
-// Navegaciones del sidebar visibles por rol. 'readonly' ve todo el árbol de
-// navegación (solo se le ocultan botones de acción), 'warehouse' solo ve las
+// Navegaciones del sidebar visibles por rol. 'readonly' ve solo las 5 vistas
+// documentadas en la propuesta comercial (Dash, Delegaciones, Trabajadores,
+// Albaranes, Facturas) + el Portal de bienvenida; 'warehouse' solo ve las
 // vistas de su ámbito (Todas las Prendas, Albaranes, Trabajadores para poder
 // llegar a Prendas del Trabajador, y su Perfil).
 var WAREHOUSE_NAV_IDS=['v-portal','v-workers','v-products','v-albaran','v-profile'];
+var READONLY_NAV_IDS=['v-portal','v-dash','v-deleg','v-workers','v-albaran','v-invoices','v-profile'];
 function applyRoleUI(){
   var roleLabelEl=document.querySelector('.sb-urole');
   if(roleLabelEl)roleLabelEl.textContent=ROLE_LABELS[_currentRole]||_currentRole;
   document.body.classList.toggle('role-readonly', _currentRole==='readonly');
   document.body.classList.toggle('role-warehouse', _currentRole==='warehouse');
-  if(_currentRole==='warehouse'){
+  var navFilter=_currentRole==='warehouse'?WAREHOUSE_NAV_IDS:(_currentRole==='readonly'?READONLY_NAV_IDS:null);
+  if(navFilter){
     document.querySelectorAll('.sb-nav .sb-label').forEach(function(el){el.style.display='none';});
     document.querySelectorAll('.sb-nav .nav-it').forEach(function(el){
       var onclick=el.getAttribute('onclick')||'';
-      var match=WAREHOUSE_NAV_IDS.some(function(id){return onclick.indexOf("'"+id+"'")!==-1;});
+      var match=navFilter.some(function(id){return onclick.indexOf("'"+id+"'")!==-1;});
       el.style.display=match?'':'none';
     });
   }
@@ -2626,6 +2727,14 @@ function goPortalNav(id){
   show(id, document.querySelector('.nav-it[onclick*="'+id+'"]'));
 }
 
+function _portalLimit(){
+  var v=(document.getElementById('portal-limit-sel')||{}).value;
+  var n=parseInt(v,10);
+  return isNaN(n)?20:n;
+}
+function _portalSort(){
+  return (document.getElementById('portal-sort-sel')||{}).value||'date desc';
+}
 async function loadPortalMessages(){
   var panel=document.getElementById('portal-messages-panel');
   var list=document.getElementById('portal-messages-list');
@@ -2633,7 +2742,7 @@ async function loadPortalMessages(){
   var navBadge=document.getElementById('portal-nav-badge');
   if(!panel||!list)return;
   try{
-    var r=await fetch('/api/portal_messages');
+    var r=await fetch('/api/portal_messages?limit='+_portalLimit()+'&sort='+encodeURIComponent(_portalSort()));
     if(r.status===401){doLogout();return;}
     if(!r.ok)return;
     var msgs=await r.json();
@@ -2645,11 +2754,21 @@ async function loadPortalMessages(){
       if(navBadge)navBadge.style.display='none';
       return;
     }
+    var MSG_TYPE_META={
+      reminder:{icon:'📢',cls:'pm-reminder'},
+      stock:{icon:'⚠',cls:'pm-stock'},
+      success:{icon:'✅',cls:'pm-success'}
+    };
     list.innerHTML=msgs.map(function(m){
-      return '<div class="portal-msg">'
+      var meta=MSG_TYPE_META[m.msg_type]||null;
+      var footerParts=[fmtDate(m.date)];
+      if(m.author_name)footerParts.push(escHtml(m.author_name));
+      if(m.title)footerParts.push('MY Uniform');
+      return '<div class="portal-msg'+(meta?' '+meta.cls:'')+'">'
+        +(m.title?'<div class="portal-msg-title">'+(meta?meta.icon+' ':'')+escHtml(m.title)+'</div>':'')
         +'<div style="margin-bottom:8px;">'+escHtml(m.body||'')+'</div>'
         +(m.partner_id?'<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Cliente: '+escHtml(m.partner_id[1])+'</div>':'')
-        +'<div class="portal-msg-date">'+fmtDate(m.date)+'</div>'
+        +'<div class="portal-msg-date">'+footerParts.join(' · ')+'</div>'
         +'</div>';
     }).join('');
     panel.style.display='';
@@ -2671,7 +2790,7 @@ async function loadPortalPromos(){
   var list=document.getElementById('portal-promos-list');
   if(!panel||!list)return;
   try{
-    var r=await fetch('/api/portal_promos');
+    var r=await fetch('/api/portal_promos?limit='+_portalLimit()+'&sort='+encodeURIComponent(_portalSort()));
     if(r.status===401){doLogout();return;}
     if(!r.ok)return;
     var promos=await r.json();
@@ -2682,12 +2801,10 @@ async function loadPortalPromos(){
       var img=p.image_128
         ? '<img src="data:image/png;base64,'+p.image_128+'" />'
         : '<div style="text-align:center;padding:0 14px;font-family:var(--font-d);font-size:16px;font-weight:800;color:#fff;letter-spacing:.04em;text-transform:uppercase;">'+escHtml(p.title||'')+'</div>';
-      var cta='';
-      if(p.cta_label){
-        cta=p.cta_url
-          ? '<a class="btn btn-s btn-sm" style="margin-top:8px;font-size:11px;text-decoration:none;display:inline-flex;" href="'+escHtml(p.cta_url)+'" target="_blank" rel="noopener">'+escHtml(p.cta_label)+'</a>'
-          : '<button class="btn btn-s btn-sm" style="margin-top:8px;font-size:11px;" disabled>'+escHtml(p.cta_label)+'</button>';
-      }
+      var promoAgreementId=p.agreement_id?p.agreement_id[0]:'null';
+      var cta=p.cta_show_button
+        ? '<button class="btn btn-s btn-sm" style="margin-top:8px;font-size:11px;" onclick="openPromoContactModal('+p.id+',\''+escHtml(p.title||'').replace(/'/g,"&#39;")+'\','+promoAgreementId+')">Solicitar información</button>'
+        : '';
       return '<div class="portal-promo">'
         +'<div class="portal-promo-img" style="background:linear-gradient(135deg,'+(p.color_from||'#02284F')+' 0%,'+(p.color_to||'#1D4ED8')+' 100%);">'+img+'</div>'
         +'<div class="portal-promo-body">'
@@ -2708,7 +2825,7 @@ async function loadPortalPendingSizes(){
   var footer=document.getElementById('portal-sizes-footer');
   if(!panel||!list)return;
   try{
-    var r=await fetch('/api/portal/pending_sizes?limit=5');
+    var r=await fetch('/api/portal/pending_sizes?limit='+_portalLimit());
     if(r.status===401){doLogout();return;}
     if(!r.ok)return;
     var data=await r.json();
@@ -2742,7 +2859,7 @@ async function loadPortalStockAlerts(){
   var footer=document.getElementById('portal-stock-footer');
   if(!panel||!list)return;
   try{
-    var r=await fetch('/api/portal/stock_alerts?limit=5');
+    var r=await fetch('/api/portal/stock_alerts?limit='+_portalLimit());
     if(r.status===401){doLogout();return;}
     if(!r.ok)return;
     var data=await r.json();
@@ -2756,6 +2873,8 @@ async function loadPortalStockAlerts(){
       var numColor=pct<5?'#991B1B':'#C2410C';
       var loc=[row.delegation_name,row.dept_name].filter(function(x){return !!x;}).join(' · ');
       var searchParam = row.product_name? 'decodeURIComponent(\''+encodeURIComponent(row.product_name)+'\')' : "''";
+      var sizeParam = row.size? 'decodeURIComponent(\''+encodeURIComponent(row.size)+'\')' : "''";
+      var agreementParam = row.agreement_id? String(row.agreement_id) : 'null';
       return '<div class="portal-stock-row">'
         +'<div style="flex:1;min-width:0;">'
           +'<div style="font-weight:600;font-size:12px;">'+escHtml(row.product_name)+'</div>'
@@ -2764,7 +2883,7 @@ async function loadPortalStockAlerts(){
         +'<div style="text-align:right;flex-shrink:0;display:flex;align-items:center;gap:8px;flex-direction:column;">'
           +'<div style="font-family:var(--font-m);font-size:11px;font-weight:700;color:'+numColor+';">'+Math.round(row.remaining)+' / '+Math.round(row.total)+'</div>'
           +'<div style="font-size:10px;color:var(--muted);">'+pct+'%</div>'
-          +'<button class="btn btn-s btn-sm" style="margin-top:6px;white-space:nowrap;" onclick="event.stopPropagation();openProductsForStockAlert('+searchParam+')">Ver prendas</button>'
+          +'<button class="btn btn-s btn-sm" style="margin-top:6px;white-space:nowrap;" onclick="event.stopPropagation();openProductsForStockAlert('+searchParam+','+sizeParam+','+agreementParam+')">Ver prendas</button>'
         +'</div>'
         +'<div style="width:50px;"><div class="portal-stock-bar"><div class="portal-stock-fill" style="width:'+pct+'%;background:'+barColor+';"></div></div></div>'
       +'</div>';
@@ -2970,9 +3089,9 @@ function renderDashCards(){
       +'</div>'
       +'<div class="pb"><div class="del" style="width:'+agPct+'%"></div><div class="rem"></div></div>'
       +'<div class="card-foot">'
-      +'<button class="btn btn-p btn-sm" onclick="openAgreement('+a.id+',\'v-proj\')">Ver detalle</button>'
+      +'<button class="btn btn-p btn-sm role-hide-readonly" onclick="openAgreement('+a.id+',\'v-proj\')">Ver detalle</button>'
       +'<button class="btn btn-s btn-sm" onclick="openAgreement('+a.id+',\'v-workers\')">Trabajadores</button>'
-      +'<button class="btn btn-s btn-sm" onclick="openAgreement('+a.id+',\'v-orders\')">Pedidos</button>'
+      +'<button class="btn btn-s btn-sm role-hide-readonly" onclick="openAgreement('+a.id+',\'v-orders\')">Pedidos</button>'
       +newOrderBtn
       +'</div>'
       +'</div>';
@@ -3055,6 +3174,7 @@ async function loadProj(){
     e=document.getElementById('proj-leg-asgn');if(e)e.textContent=Math.round(pAsgn)+'% asignadas';
     e=document.getElementById('proj-leg-rem'); if(e)e.textContent=Math.round(remQty)+' sin asignar';
     renderProjGarments();
+    _populateProjLook(id);
   }catch(e4){
     var el=document.getElementById('garment-grid');
     if(el)el.innerHTML='<div style="padding:40px;text-align:center;color:#DC2626;">Error cargando prendas.</div>';
@@ -3328,13 +3448,35 @@ function _filterWorkers(){
     return 0;
   });
   var ph=document.getElementById('workers-ph-sub');
-  if(ph)ph.textContent=workers.length+' trabajador'+(workers.length!==1?'es':'')+' mostrado'+(workers.length!==1?'s':'');
+  if(ph)ph.textContent=workers.length+' trabajador'+(workers.length!==1?'es':'')+' mostrado'+(workers.length!==1?'s':'')
+    +(_workersTotal>_workersData.length?' de '+_workersTotal+' totales':'')
+    +(_workersPages>1?' · Página '+_workersServerPage+' de '+_workersPages:'');
   renderWorkers(workers);
 }
 
 /* === V-DEPTS === */
+// Placeholder de foto de modelo para la miniatura de departamento — pendiente
+// de sustituir por las fotos reales cuando el cliente arranque el proyecto.
+// (Nota: fotos de stock de muestra, algunas con marca de agua — solo válidas
+// para esta BD de prueba local, nunca para producción.)
+// Separadas por temporada para que el modal "Look del uniforme" muestre una
+// foto coherente al cambiar entre verano/invierno.
+var _DEPT_MODEL_PHOTOS_SUMMER=['/static/models/modelo1.jpg','/static/models/modelo2.webp','/static/models/modelo3.jpg','/static/models/modelo4.jpg','/static/models/modelo5.jpg','/static/models/modelo6.avif'];
+var _DEPT_MODEL_PHOTOS_WINTER=['/static/models/modelo7.jpg','/static/models/modelo8.jpg'];
+// Índice por posición en la lista renderizada (no por id, que puede repetir
+// residuo y hacer que varias tarjetas seguidas salgan con la misma foto).
+// Se guarda por deptId para que el modal "Look del uniforme" (que solo recibe
+// el id, no la posición) pueda mostrar EXACTAMENTE la misma foto que la
+// miniatura de la tarjeta en la que se hizo clic — antes usaban dos esquemas
+// de selección distintos y podían no coincidir ni con verano ni invierno.
+var _deptCardIdx={};
+function _deptSeasonPhoto(idx,season){
+  var pool=season==='winter'?_DEPT_MODEL_PHOTOS_WINTER:_DEPT_MODEL_PHOTOS_SUMMER;
+  return pool[idx%pool.length];
+}
 function renderDeptsTable(depts,cont){
-  cont.innerHTML=depts.map(function(d){
+  cont.innerHTML=depts.map(function(d,idx){
+    _deptCardIdx[d.id]=idx;
     var nw=d.worker_ids?d.worker_ids.length:0;
     var no=d.uniform_ids?d.uniform_ids.length:0;
     var stCls=no>0?'t-red':'t-grey';
@@ -3345,6 +3487,10 @@ function renderDeptsTable(depts,cont){
     var entrega=d.partner_id?escHtml(d.partner_id[1]):'';
     var responsable=d.responsable_id?escHtml(d.responsable_id[1]):'';
     return '<div class="dept-card">'
+      +'<div class="dept-look-mini" id="dept-look-'+d.id+'" onclick="event.stopPropagation();openLookModal(\'department\','+d.id+')">'
+      +'<img class="dept-look-photo" src="'+_deptSeasonPhoto(idx,'summer')+'" alt="" />'
+      +'<div class="dept-look-lbl">Look</div>'
+      +'</div>'
       +'<div class="dept-card-main">'
       +'<div class="dept-card-name">'+escHtml(d.name)+'</div>'
       +'<div class="dept-card-meta">'+nw+' trabajador'+(nw!==1?'es':'')+(no?' · '+stTxt:'')+'</div>'
@@ -3380,32 +3526,44 @@ async function loadDepts(){
 /* === V-WORKERS === */
 var _workersData=[];
 var _deptMap={};
-async function loadWorkers(){
+var WORKERS_SERVER_LIMIT=100;
+var _workersServerPage=1;
+var _workersTotal=0;
+var _workersPages=1;
+async function loadWorkers(serverPage){
+  if(!serverPage)serverPage=1;
+  _workersServerPage=serverPage;
   var tbody=document.getElementById('workers-tbody');
-  var ph=document.getElementById('workers-ph-sub');
   if(!tbody)return;
   tbody.innerHTML='<tr><td colspan="9" style="padding:32px;text-align:center;color:var(--muted);">Cargando trabajadores...</td></tr>';
   try{
-    var r=await fetch(_currentAgreementId?'/api/agreements/'+_currentAgreementId+'/all_workers':'/api/all_workers');
+    var base=_currentAgreementId?'/api/agreements/'+_currentAgreementId+'/all_workers':'/api/all_workers';
+    var r=await fetch(base+'?page='+serverPage+'&limit='+WORKERS_SERVER_LIMIT);
     if(r.status===401){doLogout();return;}
     var data=await r.json();
     _workersData=data.workers||[];
+    _workersTotal=data.total!=null?data.total:_workersData.length;
+    _workersPages=data.pages||1;
     var depts=data.departments||[];
     _deptMap={};
     depts.forEach(function(d){_deptMap[d.id]=d.name;});
-    var workers=_workersData;
-    if(_currentDeptId){
-      workers=workers.filter(function(w){return (w.department_ids||[]).indexOf(_currentDeptId)!==-1;});
-    }
-    if(ph)ph.textContent=workers.length+' trabajador'+(workers.length!==1?'es':'')+(depts.length?' · '+depts.length+' departamento'+(depts.length!==1?'s':''):'');
     var selD=document.getElementById('workers-dept-sel');
-    if(selD){
+    if(selD&&serverPage===1){
       selD.innerHTML='<option value="">Todos los departamentos</option>'+depts.map(function(d){
         return '<option value="'+d.id+'">'+escHtml(d.name)+'</option>';
       }).join('');
       if(_currentDeptId)selD.value=_currentDeptId;
     }
-    renderWorkers(workers);
+    var wpbtns=document.getElementById('workers-pag-btns');
+    if(wpbtns){
+      var wp='';
+      if(_workersPages>1){
+        if(serverPage>1)wp+='<button class="btn btn-s btn-sm" onclick="loadWorkers('+(serverPage-1)+')">« Anterior '+WORKERS_SERVER_LIMIT+'</button>';
+        if(serverPage<_workersPages)wp+='<button class="btn btn-s btn-sm" onclick="loadWorkers('+(serverPage+1)+')">Siguientes '+WORKERS_SERVER_LIMIT+' »</button>';
+      }
+      wpbtns.innerHTML=wp;
+    }
+    _filterWorkers();
   }catch(e){tbody.innerHTML='<tr><td colspan="9" style="padding:32px;text-align:center;color:#DC2626;">Error cargando trabajadores.</td></tr>';}
 }
 
@@ -3493,7 +3651,17 @@ async function loadWorkerGarments(){
     if(ph)ph.textContent=escHtml(worker.name||'Trabajador')+(_wdNames?' · '+_wdNames:'');
     var hdr=document.getElementById('wg-header-name');if(hdr)hdr.textContent=worker.name||'';
     var av=document.getElementById('wg-avatar');
-    if(av)av.textContent=(worker.name||'?').split(' ').map(function(x){return x[0]||'';}).join('').toUpperCase().slice(0,2);
+    if(av){
+      if(worker.image_128){
+        av.style.backgroundImage='url(data:image/png;base64,'+worker.image_128+')';
+        av.style.backgroundSize='cover';
+        av.style.backgroundPosition='center';
+        av.textContent='';
+      }else{
+        av.style.backgroundImage='';
+        av.textContent=(worker.name||'?').split(' ').map(function(x){return x[0]||'';}).join('').toUpperCase().slice(0,2);
+      }
+    }
     var _wmeta=document.getElementById('wg-worker-meta');
     if(_wmeta){
       var _wSt=_workerStateMeta[worker.employment_state||'working']||_workerStateMeta.working;
@@ -3694,6 +3862,7 @@ async function loadWorkerSizes(){
     var data=await r.json();
     var worker=data.worker||{};
     var sizes=data.sizes||[];
+    renderAddCatControl();
     if(hdr){
       var initials=(worker.name||'?').split(' ').map(function(x){return x[0]||'';}).join('').toUpperCase().slice(0,2);
       var deptNames=(worker.department_ids||[]).map(function(did){return _deptMap[did]||('Dept#'+did);}).join(', ');
@@ -3745,6 +3914,53 @@ async function saveSize(sel,sizeId){
     if(st)st.innerHTML='<span class="tag t-green">✓ Guardado</span>';
     setTimeout(function(){if(st)st.innerHTML='<span class="tag '+(newId?'t-green':'')+'">'+(newId?'✓ Asignada':'Pendiente')+'</span>';},1500);
   }catch(e2){alert('Error guardando talla.');}
+}
+
+function renderAddCatControl(){
+  var cont=document.getElementById('wsz-add-cat');
+  if(!cont)return;
+  cont.innerHTML='<button class="btn btn-s btn-sm" onclick="openAddWorkerCategory()">+ Añadir categoría</button>';
+}
+
+async function openAddWorkerCategory(){
+  var cont=document.getElementById('wsz-add-cat');
+  if(!cont||!_currentWorkerId)return;
+  cont.innerHTML='<div style="font-size:12px;color:var(--muted);">Cargando categorías...</div>';
+  try{
+    await _ensureSizeValues();
+    var r=await fetch('/api/workers/'+_currentWorkerId+'/available_categories');
+    if(r.status===401){doLogout();return;}
+    var cats=await r.json();
+    if(!cats.length){cont.innerHTML='<div style="font-size:12px;color:var(--muted);">Este trabajador ya tiene talla en todas las categorías disponibles.</div>';return;}
+    cont.innerHTML='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;">'
+      +'<select id="wsz-newcat-sel" class="fsel">'
+      +cats.map(function(c){return '<option value="'+c.id+'">'+escHtml(c.name)+'</option>';}).join('')
+      +'</select>'
+      +'<select id="wsz-newcat-size" class="fsel">'
+      +_sizeValues.map(function(sv){return '<option value="'+sv.id+'">'+escHtml(sv.name)+'</option>';}).join('')
+      +'</select>'
+      +'<button class="btn btn-p btn-sm" onclick="submitAddWorkerCategory()">Añadir</button>'
+      +'<button class="btn btn-s btn-sm" onclick="renderAddCatControl()">Cancelar</button>'
+      +'</div>';
+  }catch(e){cont.innerHTML='<div style="font-size:12px;color:#DC2626;">Error cargando categorías.</div>';}
+}
+
+async function submitAddWorkerCategory(){
+  var catSel=document.getElementById('wsz-newcat-sel');
+  var sizeSel=document.getElementById('wsz-newcat-size');
+  if(!catSel||!sizeSel)return;
+  var categoryId=parseInt(catSel.value)||0;
+  var sizeValueId=parseInt(sizeSel.value)||0;
+  if(!categoryId||!sizeValueId)return;
+  try{
+    var r=await fetch('/api/workers/'+_currentWorkerId+'/sizes',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({category_id:categoryId,size_value_id:sizeValueId})
+    });
+    var data=await r.json().catch(function(){return{};});
+    if(!r.ok)throw new Error(data.detail||'Error al añadir la categoría');
+    loadWorkerSizes();
+  }catch(e){alert('Error: '+(e.message||e));}
 }
 
 /* === V-ORDERS === */
@@ -4065,7 +4281,7 @@ function _renderInvoiceRow(inv){
   var pyMap={not_paid:['t-amber','Pendiente'],in_payment:['t-blue','En cobro'],paid:['t-green','Pagada'],partial:['t-amber','Parcial']};
   var st=stMap[inv.state]||['t-grey',inv.state||''];
   var py=pyMap[inv.payment_state]||st;
-  var desc=inv.narration||('Factura'+(inv.invoice_origin?' del pedido '+inv.invoice_origin:''));
+  var desc=inv.narration?stripHtml(inv.narration):('Factura'+(inv.invoice_origin?' del pedido '+inv.invoice_origin:''));
   return '<div style="display:grid;grid-template-columns:160px 1fr 120px 90px 120px 110px;gap:0;padding:12px 16px;border-bottom:1px solid var(--bg);align-items:center;cursor:pointer;" onclick="showInvoiceDetail('+inv.id+')">'
     +'<div class="inv-num">'+escHtml(inv.name||'—')+'</div>'
     +'<div style="font-size:13px;color:var(--near-black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escHtml(desc)+'</div>'
@@ -4265,6 +4481,12 @@ async function loadProducts(serverPage,serverSearch){
   if(!tbody)return;
   tbody.innerHTML='<tr><td colspan="14" style="padding:32px;text-align:center;color:var(--muted);">Cargando prendas...</td></tr>';
   try{
+    await _ensureSizeValues();
+    var selSize=document.getElementById('prod-sel-size');
+    if(selSize&&selSize.options.length<=1){
+      selSize.innerHTML='<option value="">Todas las tallas</option>'
+        +_sizeValues.map(function(sv){return '<option value="'+escHtml(sv.name)+'">'+escHtml(sv.name)+'</option>';}).join('');
+    }
     var base=_currentAgreementId?'/api/agreements/'+_currentAgreementId+'/lines':'/api/lines';
     var url=base+'?page='+serverPage+'&limit='+PROD_SERVER_LIMIT
       +(_productsServerSearch?'&search='+encodeURIComponent(_productsServerSearch):'');
@@ -4312,10 +4534,12 @@ function renderProductsPage(page){
   var tbody=document.getElementById('products-tbody');
   if(!tbody)return;
   var fProj=(document.getElementById('prod-sel-proj')||{value:''}).value||'';
+  var fSize=(document.getElementById('prod-sel-size')||{value:''}).value||'';
   var prodSort=((document.getElementById('prod-sort')||{}).value||'name-asc');
-  // El search se hace en servidor; aquí solo filtramos por acuerdo y ordenamos
+  // El search se hace en servidor; aquí solo filtramos por acuerdo/talla y ordenamos
   var filtered=_productsData.filter(function(l){
     if(fProj){var agId=l.sol_agreement_id?String(l.sol_agreement_id[0]):'';if(agId!==fProj)return false;}
+    if(fSize&&(l.product_size_value||'')!==fSize)return false;
     return true;
   });
   filtered=filtered.slice().sort(function(a,b){
@@ -5467,24 +5691,54 @@ async function submitRushOrder(){
    ESCRIBIR A LA GESTORA (proyecto bloqueado)
    ================================================================ */
 var _cmAgreementId=null;
+var _cmPromoId=null;
 function openContactManagerModal(agreementId){
   var a=(_agreements||[]).find(function(x){return x.id===agreementId;});
   if(!a)return;
   _cmAgreementId=agreementId;
-  var mgr=a.account_manager_id?a.account_manager_id[1]:'Tu gestora de cuenta';
+  _cmPromoId=null;
+  var mgrName=a.account_manager_id?a.account_manager_id[1]:'';
+  var mgr=mgrName||'Tu gestora de cuenta';
+  var mgrFirst=mgrName?mgrName.split(' ')[0]:'';
   var initials=mgr.split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2)||'?';
   document.getElementById('cm-project-name').textContent=a.name||'';
   document.getElementById('cm-agreement-name').value=a.name||'';
-  document.getElementById('cm-avatar').textContent=initials;
+  var avatarEl=document.getElementById('cm-avatar');
+  if(a.account_manager_image){
+    avatarEl.innerHTML='<img src="data:image/png;base64,'+a.account_manager_image+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" />';
+  }else{
+    avatarEl.textContent=initials;
+  }
   document.getElementById('cm-name').textContent=mgr;
   document.getElementById('cm-phone').textContent=a.account_manager_phone?('☎ '+a.account_manager_phone):'';
   document.getElementById('cm-email').textContent=a.account_manager_email?('✉ '+a.account_manager_email):'';
   document.getElementById('cm-subject').value='order_request';
-  document.getElementById('cm-message').value='Hola '+mgr+',\n\nEn relación al proyecto "'+(a.name||'')+'", ';
+  document.getElementById('cm-message').value=(mgrFirst?('Hola '+mgrFirst+', '):'Hola, ')+'me pongo en contacto contigo para solicitar un nuevo pedido para el proyecto '+(a.name||'')+'. Adjunto las cantidades necesarias por trabajador.';
   document.getElementById('cm-sent-ok').style.display='none';
   var sendBtn=document.getElementById('cm-send-btn');
   if(sendBtn){sendBtn.disabled=false;sendBtn.textContent='Enviar mensaje';}
   openModal('modal-contact-manager');
+}
+// Botón "Solicitar información" de una promoción (uniform.portal.promo):
+// reutiliza el mismo wizard/endpoint de "Escribir a tu gestora". Si la promo
+// tiene un acuerdo asociado (agreementId) se usa ese directamente; si no,
+// se resuelve el acuerdo activo del cliente logueado (confirmado si lo hay).
+function openPromoContactModal(promoId,promoTitle,agreementId){
+  var list=_agreements||[];
+  var a=(agreementId&&list.find(function(x){return x.id===agreementId;}))
+    ||list.find(function(x){return x.state==='confirmed';})
+    ||list.find(function(x){return x.state!=='cancelled';})
+    ||list[0];
+  if(!a){alert('No tienes acuerdos activos para contactar con tu gestora.');return;}
+  openContactManagerModal(a.id);
+  // El mensaje se publica en el chatter de ESTA promoción, no en el del
+  // acuerdo (un acuerdo puede tener varias promociones, cada una con su
+  // propio hilo) — openContactManagerModal ya puso _cmPromoId a null, aquí
+  // se fija al id real para que submitContactManager() apunte bien.
+  _cmPromoId=promoId;
+  var mgrFirst=a.account_manager_id?a.account_manager_id[1].split(' ')[0]:'';
+  document.getElementById('cm-subject').value='other';
+  document.getElementById('cm-message').value=(mgrFirst?('Hola '+mgrFirst+', '):'Hola, ')+'me interesa la promoción "'+(promoTitle||'')+'". ¿Podrías darme más información?';
 }
 async function submitContactManager(){
   var msgEl=document.getElementById('cm-message');
@@ -5494,10 +5748,13 @@ async function submitContactManager(){
   var sendBtn=document.getElementById('cm-send-btn');
   if(sendBtn){sendBtn.disabled=true;sendBtn.textContent='Enviando...';}
   try{
-    var r=await fetch('/api/agreements/'+_cmAgreementId+'/contact_manager',{
+    var url=_cmPromoId
+      ? ('/api/promos/'+_cmPromoId+'/contact_manager')
+      : ('/api/agreements/'+_cmAgreementId+'/contact_manager');
+    var r=await fetch(url,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({subject:subject,message:message})
+      body:JSON.stringify({subject:subject,message:message,agreement_id:_cmAgreementId})
     });
     if(r.status===401){doLogout();return;}
     if(!r.ok)throw new Error('HTTP '+r.status);
@@ -5508,6 +5765,132 @@ async function submitContactManager(){
     alert('No se pudo enviar el mensaje. Inténtalo de nuevo.');
     if(sendBtn){sendBtn.disabled=false;sendBtn.textContent='Enviar mensaje';}
   }
+}
+
+/* ================================================================
+   LOOK DEL UNIFORME (silueta SVG por departamento o proyecto)
+   ================================================================ */
+var _lookData=null;
+var _lookSeason='summer';
+var _lookEntityId=null;
+var _LOOK_SLOT_LABELS={top_inner:'Interior',top_outer:'Exterior',bottom:'Inferior',footwear:'Calzado',accessory:'Complementos',full_body:'Prenda completa',other:'Otro'};
+async function openLookModal(scope,id){
+  if(!id){alert('Selecciona primero un '+(scope==='department'?'departamento':'proyecto')+'.');return;}
+  // El modal NO se abre hasta tener la respuesta completa: se puebla todo
+  // su contenido (avatar, leyenda, tabla) mientras sigue oculto y solo
+  // entonces se llama a openModal(). Así es IMPOSIBLE que se vea, ni por un
+  // frame, la silueta neutra de carga o los datos del look anterior — el
+  // usuario solo ve el modal cuando ya está pintado con el resultado final.
+  document.body.style.cursor='wait';
+  try{
+    var url=scope==='department'?('/api/departments/'+id+'/look'):('/api/agreements/'+id+'/look');
+    var r=await fetch(url);
+    if(r.status===401){doLogout();return;}
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    var data=await r.json();
+    _lookData=data;
+    _lookSeason='summer';
+    _lookEntityId=id;
+    renderLookPanel();
+    var sub=document.getElementById('lk-subtitle');
+    if(sub)sub.textContent=(data.garments||[]).length+' prenda'+((data.garments||[]).length!==1?'s':'')+' con datos de pedido';
+    openModal('modal-look');
+  }catch(e){
+    alert('No se ha podido cargar el look del uniforme.');
+  }finally{
+    document.body.style.cursor='';
+  }
+}
+function setLookSeason(season){
+  _lookSeason=season;
+  renderLookPanel();
+}
+function _lookColorForSeason(slots,keys,season){
+  for(var i=0;i<keys.length;i++){
+    var s=slots[keys[i]];
+    if(s&&(s[season]||s['all']))return s[season]||s['all'];
+  }
+  return null;
+}
+// Silueta coloreada según los datos reales del look (mismo dibujo del mockup
+// comercial B2B_MOCKUP.html, parametrizado por color/tamaño en vez de fijo).
+function _lookFigureSvgHtml(slots,season,w,h){
+  var top=_lookColorForSeason(slots,['top_outer'],season)||_lookColorForSeason(slots,['top_inner'],season)||_lookColorForSeason(slots,['full_body'],season);
+  var bottom=_lookColorForSeason(slots,['bottom'],season)||_lookColorForSeason(slots,['full_body'],season);
+  var shoe=_lookColorForSeason(slots,['footwear'],season);
+  var topHex=top?top.color_hex:'#D8DEE6';
+  var bottomHex=bottom?bottom.color_hex:'#1A1A1A';
+  var shoeHex=shoe?shoe.color_hex:'#3D3D3D';
+  return '<svg width="'+w+'" height="'+h+'" viewBox="0 0 72 130" fill="none">'
+    +'<ellipse cx="36" cy="14" rx="10" ry="11" fill="#FDDCB5"/>'
+    +'<ellipse cx="36" cy="10" rx="10" ry="7" fill="#4A3728"/>'
+    +'<rect x="32" y="23" width="8" height="6" fill="#FDDCB5"/>'
+    +'<path d="M20 29L28 25H44L52 29V65H20V29Z" fill="'+topHex+'"/>'
+    +'<path d="M20 29L14 35V50H22V40L20 29Z" fill="'+topHex+'"/>'
+    +'<path d="M52 29L58 35V50H50V40L52 29Z" fill="'+topHex+'"/>'
+    +'<rect x="22" y="65" width="28" height="45" rx="2" fill="'+bottomHex+'"/>'
+    +'<ellipse cx="28" cy="115" rx="8" ry="5" fill="'+shoeHex+'"/>'
+    +'<ellipse cx="44" cy="115" rx="8" ry="5" fill="'+shoeHex+'"/>'
+    +'</svg>';
+}
+// Foto del wizard "Look del uniforme" (verano/invierno). SIEMPRE es una foto,
+// nunca la silueta SVG: si la gestora ha subido la foto real desde el
+// backend de Odoo (uniform.agreement(.department).look_photo_summer/winter)
+// se usa esa; si no, cae a una de las 3 fotos de modelo de muestra — el
+// portal nunca ofrece subir ni cambiar estas fotos, eso es solo de backend.
+function _lookPhotoHtml(data,season,entityId,w,h){
+  var real=season==='winter'?data.photo_winter:data.photo_summer;
+  var idx=_deptCardIdx[entityId]||0;
+  var src=real?('data:image/png;base64,'+real):_deptSeasonPhoto(idx,season);
+  return '<img src="'+src+'" style="width:'+w+'px;height:'+h+'px;object-fit:cover;border-radius:8px;border:1px solid var(--border);" />';
+}
+async function _populateProjLook(agreementId){
+  var panel=document.getElementById('proj-look-panel');
+  if(!panel)return;
+  try{
+    var r=await fetch('/api/agreements/'+agreementId+'/look');
+    if(!r.ok)return;
+    var data=await r.json();
+    var garments=data.garments||[];
+    if(!garments.length){panel.style.display='none';return;}
+    panel.style.display='';
+    var slots=data.slots||{};
+    document.getElementById('proj-look-summer').innerHTML=_lookFigureSvgHtml(slots,'summer',72,130);
+    document.getElementById('proj-look-winter').innerHTML=_lookFigureSvgHtml(slots,'winter',72,130);
+    var nameEl=document.getElementById('proj-look-name');
+    if(nameEl){var ag=(_agreements||[]).find(function(a){return a.id===agreementId;});nameEl.textContent=ag?(ag.name||''):'';}
+    var itemsEl=document.getElementById('proj-look-items');
+    if(itemsEl)itemsEl.innerHTML=garments.slice(0,8).map(function(g){
+      return '<span class="look-item"><span style="width:10px;height:10px;border-radius:50%;background:'+(g.color_hex||'#ccc')+';flex-shrink:0;"></span>'+escHtml(g.name||'')+(g.code?' · '+escHtml(g.code):'')+'</span>';
+    }).join('');
+  }catch(e){}
+}
+function renderLookPanel(){
+  var btnS=document.getElementById('lk-season-summer');if(btnS)btnS.classList.toggle('btn-p',_lookSeason==='summer');
+  var btnW=document.getElementById('lk-season-winter');if(btnW)btnW.classList.toggle('btn-p',_lookSeason==='winter');
+  if(btnS)btnS.classList.toggle('btn-s',_lookSeason!=='summer');
+  if(btnW)btnW.classList.toggle('btn-s',_lookSeason!=='winter');
+  var tbody=document.getElementById('lk-garments-tbody');
+  if(!_lookData){if(tbody)tbody.innerHTML='';return;}
+  var slots=_lookData.slots||{};
+  var figEl=document.getElementById('lk-figure');
+  if(figEl)figEl.innerHTML=_lookPhotoHtml(_lookData,_lookSeason,_lookEntityId,140,228);
+
+  var legendParts=[];
+  [['top_outer','Exterior'],['top_inner','Interior'],['bottom','Inferior'],['footwear','Calzado'],['accessory','Complementos']].forEach(function(pair){
+    var s=slots[pair[0]];
+    var c=s&&(s[_lookSeason]||s['all']);
+    if(c)legendParts.push('<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;"><span style="width:10px;height:10px;border-radius:2px;background:'+c.color_hex+';display:inline-block;border:1px solid rgba(0,0,0,.15);flex-shrink:0;"></span>'+pair[1]+': '+escHtml(c.color_name||'—')+'</div>');
+  });
+  var legendEl=document.getElementById('lk-legend');
+  if(legendEl)legendEl.innerHTML=legendParts.length?legendParts.join(''):'<span style="color:var(--muted);">Sin datos de color para esta temporada.</span>';
+
+  var garments=(_lookData.garments||[]);
+  if(tbody)tbody.innerHTML=garments.length?garments.map(function(g){
+    return '<tr><td>'+escHtml(g.name||'')+' <span style="color:var(--muted);font-size:11px;">('+(_LOOK_SLOT_LABELS[g.slot]||g.slot)+')</span></td>'
+      +'<td>'+escHtml(g.code||'—')+'</td>'
+      +'<td><span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;background:'+(g.color_hex||'#ccc')+';display:inline-block;border:1px solid rgba(0,0,0,.15);"></span>'+escHtml(g.color_name||'—')+'</span></td></tr>';
+  }).join(''):'<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:16px;">Sin prendas.</td></tr>';
 }
 
 /* ================================================================

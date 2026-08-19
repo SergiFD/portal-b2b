@@ -6,6 +6,7 @@ Cada usuario se autentica con sus propias credenciales de Odoo.
 No hay cuenta de servicio hardcodeada.
 """
 
+import html
 import os
 import secrets
 import httpx
@@ -14,7 +15,7 @@ from typing import Any, Annotated
 
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, Cookie
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 # ---------------------------------------------------------------------------
 # Config (solo URL y BD — sin credenciales)
@@ -294,8 +295,22 @@ async def change_my_password(request: Request, session: SessionDep):
 # ---------------------------------------------------------------------------
 
 
+def _portal_list_kwargs(limit: int, sort: str, default_order: str) -> dict:
+    """`limit`<=0 = sin límite (se omite la clave, Odoo devuelve todo). `sort`
+    solo se acepta si es exactamente 'date desc'/'date asc' (evita pasar
+    cualquier cadena arbitraria como `order` a search_read); si no, se usa
+    `default_order`."""
+    kwargs: dict = {}
+    if limit > 0:
+        kwargs["limit"] = limit
+    kwargs["order"] = sort if sort in ("date desc", "date asc") else default_order
+    return kwargs
+
+
 @app.get("/api/portal_messages")
-async def list_portal_messages(session: SessionDep, limit: int = 20):
+async def list_portal_messages(
+    session: SessionDep, limit: int = 20, sort: str = "date desc"
+):
     """Mensajes de la gestora de cuenta para el panel de bienvenida (v-dash).
     El ir.rule del modelo ya filtra a mensajes generales + los del propio cliente."""
     return await _call_kw(
@@ -304,19 +319,31 @@ async def list_portal_messages(session: SessionDep, limit: int = 20):
         "search_read",
         [[]],
         {
-            "fields": ["id", "body", "date", "partner_id"],
-            "limit": limit,
-            "order": "date desc",
+            "fields": [
+                "id",
+                "body",
+                "date",
+                "partner_id",
+                "title",
+                "msg_type",
+                "author_name",
+            ],
+            **_portal_list_kwargs(limit, sort, "date desc"),
             "context": {"lang": "es_ES"},
         },
     )
 
 
 @app.get("/api/portal_promos")
-async def list_portal_promos(session: SessionDep, limit: int = 20):
+async def list_portal_promos(
+    session: SessionDep, limit: int = 20, sort: str = "date desc"
+):
     """Promociones/novedades de MyUniform para el panel Portal.
     Se devuelven promociones activas y las específicas del cliente (partner_id vacío = global).
-    También incorpora promociones activas configuradas en acuerdos de cliente.
+
+    Las promociones configuradas por acuerdo (uniform.agreement.portal_promo)
+    se deshabilitaron a petición de negocio (2026-07-31): ahora solo existe
+    esta fuente, uniform.portal.promo.
 
     El ir.rule uniform_portal_promo_portal_rule ya filtra por
     user.commercial_partner_id para el grupo portal (general + propio) y no
@@ -339,47 +366,15 @@ async def list_portal_promos(session: SessionDep, limit: int = 20):
                 "image_128",
                 "color_from",
                 "color_to",
-                "cta_label",
-                "cta_url",
+                "cta_show_button",
+                "agreement_id",
                 "date",
             ],
-            "limit": limit,
-            "order": "sequence, date desc",
+            **_portal_list_kwargs(limit, sort, "sequence, date desc"),
             "context": {"lang": "es_ES"},
         },
     )
-    agreement_promos = await _call_kw(
-        session,
-        "uniform.agreement",
-        "search_read",
-        [
-            [
-                ["portal_promo", "=", True],
-                ["portal_promo_text", "!=", False],
-                ["portal_promo_text", "!=", ""],
-            ]
-        ],
-        {
-            "fields": ["id", "name", "portal_promo_text", "date_start"],
-            "context": {"lang": "es_ES"},
-        },
-    )
-    for agreement in agreement_promos:
-        promos.append(
-            {
-                "id": f"agreementpromo_{agreement['id']}",
-                "title": agreement.get("name") or "Promoción",
-                "subtitle": agreement.get("portal_promo_text") or "",
-                "image_128": False,
-                "color_from": "#02284F",
-                "color_to": "#1D4ED8",
-                "cta_label": "",
-                "cta_url": "",
-                "date": agreement.get("date_start"),
-            }
-        )
-    promos.sort(key=lambda p: p.get("date") or "", reverse=True)
-    return promos[:limit]
+    return promos
 
 
 @app.get("/api/portal/pending_sizes")
@@ -451,7 +446,11 @@ async def portal_pending_sizes(session: SessionDep, limit: int = 5):
             )
     rows.sort(key=lambda r: -r["pending_qty"])
     total_qty = sum(r["pending_qty"] for r in rows)
-    return {"rows": rows[:limit], "total": len(rows), "total_qty": total_qty}
+    return {
+        "rows": rows[:limit] if limit > 0 else rows,
+        "total": len(rows),
+        "total_qty": total_qty,
+    }
 
 
 @app.get("/api/portal/stock_alerts")
@@ -477,6 +476,25 @@ async def portal_stock_alerts(
         {"fields": _LINE_FIELDS, "context": {"lang": "es_ES"}},
     )
     lines = await _enrich_lines(session, lines)
+
+    # product_id via search_read solo trae [id, display_name], y el
+    # display_name de una variante incluye la talla entre paréntesis
+    # ("Camiseta algodón negra lisa (XL)"). Ese nombre no existe como tal en
+    # product.template.name (la talla nunca es parte del nombre), así que el
+    # botón "Ver prendas" del portal nunca encontraba resultados. Resolvemos
+    # aquí el nombre "pelado" (campo name, sin variante) para búsqueda/display.
+    product_ids = list({l["product_id"][0] for l in lines if l.get("product_id")})
+    product_name_map: dict = {}
+    if product_ids:
+        products = await _call_kw(
+            session,
+            "product.product",
+            "read",
+            [product_ids],
+            {"fields": ["name"], "context": {"lang": "es_ES"}},
+        )
+        product_name_map = {p["id"]: p["name"] for p in products}
+
     alerts = []
     for l in lines:
         remaining = l.get("remaining_quantity") or 0.0
@@ -486,11 +504,14 @@ async def portal_stock_alerts(
             continue
         ratio = remaining / total
         if ratio < threshold:
+            pid = (l.get("product_id") or [None, ""])[0]
             alerts.append(
                 {
                     "line_id": l["id"],
-                    "product_name": (l.get("product_id") or [None, ""])[1],
+                    "product_name": product_name_map.get(pid)
+                    or (l.get("product_id") or [None, ""])[1],
                     "size": l.get("product_size_value") or "",
+                    "agreement_id": (l.get("sol_agreement_id") or [None, ""])[0],
                     "delegation_name": (l.get("sol_delegation_id") or [None, ""])[1],
                     "dept_name": l.get("dept_name") or "",
                     "remaining": remaining,
@@ -499,7 +520,10 @@ async def portal_stock_alerts(
                 }
             )
     alerts.sort(key=lambda a: a["ratio"])
-    return {"rows": alerts[:limit], "total": len(alerts)}
+    return {
+        "rows": alerts[:limit] if limit > 0 else alerts,
+        "total": len(alerts),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -523,6 +547,7 @@ AGREEMENT_FIELDS = [
     "account_manager_id",
     "account_manager_phone",
     "account_manager_email",
+    "account_manager_image",
     "order_conditions_active",
     "order_periodicity_days",
     "last_order_request_date",
@@ -601,6 +626,329 @@ async def update_agreement_order_conditions(
         {"fields": AGREEMENT_FIELDS, "context": {"lang": "es_ES"}},
     )
     return records[0] if records else {"ok": True}
+
+
+CONTACT_SUBJECT_LABELS = {
+    "order_request": "Solicitud de pedido",
+    "size_query": "Consulta de tallas",
+    "order_status": "Estado del pedido",
+    "other": "Otro",
+}
+
+
+async def _resolve_manager_partner_ids(session: dict, manager) -> list:
+    """manager: tupla [user_id, nombre] de account_manager_id, o falsy.
+    Devuelve el partner_id (en lista, para message_post) al que notificar."""
+    if not manager:
+        return []
+    user_recs = await _call_kw(
+        session,
+        "res.users",
+        "read",
+        [[manager[0]]],
+        {"fields": ["partner_id"], "context": {"lang": "es_ES"}},
+    )
+    if user_recs and user_recs[0].get("partner_id"):
+        return [user_recs[0]["partner_id"][0]]
+    return []
+
+
+def _contact_message_html(subject_label: str, message: str) -> str:
+    safe_message = html.escape(message).replace("\n", "<br/>")
+    return (
+        "<p><strong>Mensaje del cliente desde el portal B2B</strong></p>"
+        f"<p><strong>Asunto:</strong> {html.escape(subject_label)}</p>"
+        f"<p>{safe_message}</p>"
+    )
+
+
+@app.post("/api/agreements/{agreement_id}/contact_manager")
+async def contact_agreement_manager(
+    agreement_id: int, request: Request, session: SessionDep
+):
+    """Formulario 'Escribir a la gestora' del portal (proyecto bloqueado).
+    Publica el mensaje en el chatter del acuerdo (mail.thread ya heredado por
+    uniform.agreement) y notifica al account_manager_id vía partner_ids, sin
+    construir un envío de correo aparte."""
+    body = await request.json()
+    message = (body.get("message") or "").strip()
+    if not message:
+        raise HTTPException(400, "El mensaje no puede estar vacío")
+    subject_label = CONTACT_SUBJECT_LABELS.get(body.get("subject"), "Otro")
+
+    records = await _call_kw(
+        session,
+        "uniform.agreement",
+        "read",
+        [[agreement_id]],
+        {"fields": ["name", "account_manager_id"], "context": {"lang": "es_ES"}},
+    )
+    if not records:
+        raise HTTPException(404, "Acuerdo no encontrado")
+    partner_ids = await _resolve_manager_partner_ids(
+        session, records[0].get("account_manager_id")
+    )
+
+    kwargs = {
+        "body": _contact_message_html(subject_label, message),
+        "body_is_html": True,
+        "subtype_xmlid": "mail.mt_comment",
+    }
+    if partner_ids:
+        kwargs["partner_ids"] = partner_ids
+    await _call_kw(
+        session, "uniform.agreement", "message_post", [[agreement_id]], kwargs
+    )
+    return {"ok": True}
+
+
+@app.post("/api/promos/{promo_id}/contact_manager")
+async def contact_promo_manager(promo_id: int, request: Request, session: SessionDep):
+    """Botón 'Solicitar información' de una promoción del portal.
+    A diferencia de contact_agreement_manager, publica el mensaje en el
+    chatter de la propia PROMOCIÓN (uniform.portal.promo) — un acuerdo puede
+    tener varias promociones para un mismo cliente, así que cada una necesita
+    su propio hilo, no el del acuerdo. La gestora a notificar se resuelve a
+    través del agreement_id enlazado a la promoción; si la promoción no tiene
+    uno propio, se usa el agreement_id que el frontend resolvió como
+    respaldo (el mismo que se le muestra al cliente en el wizard — sin esto
+    el cliente ve una gestora concreta pero el mensaje no le llegaría a
+    nadie)."""
+    body = await request.json()
+    message = (body.get("message") or "").strip()
+    if not message:
+        raise HTTPException(400, "El mensaje no puede estar vacío")
+    subject_label = CONTACT_SUBJECT_LABELS.get(body.get("subject"), "Otro")
+
+    records = await _call_kw(
+        session,
+        "uniform.portal.promo",
+        "read",
+        [[promo_id]],
+        {"fields": ["title", "agreement_id"], "context": {"lang": "es_ES"}},
+    )
+    if not records:
+        raise HTTPException(404, "Promoción no encontrada")
+    agreement = records[0].get("agreement_id")
+    agreement_id = agreement[0] if agreement else body.get("agreement_id")
+
+    partner_ids = []
+    if agreement_id:
+        agr_records = await _call_kw(
+            session,
+            "uniform.agreement",
+            "read",
+            [[agreement_id]],
+            {"fields": ["account_manager_id"], "context": {"lang": "es_ES"}},
+        )
+        if agr_records:
+            partner_ids = await _resolve_manager_partner_ids(
+                session, agr_records[0].get("account_manager_id")
+            )
+
+    kwargs = {
+        "body": _contact_message_html(subject_label, message),
+        "body_is_html": True,
+        "subtype_xmlid": "mail.mt_comment",
+    }
+    if partner_ids:
+        kwargs["partner_ids"] = partner_ids
+    await _call_kw(
+        session, "uniform.portal.promo", "message_post", [[promo_id]], kwargs
+    )
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Look del uniforme (silueta SVG con colores reales por tipo de prenda)
+# ---------------------------------------------------------------------------
+
+# La categoría de producto real (product.category, jerarquía "Ropa / superior
+# / interior / camisa", "Calzado / seguridad / bota", etc. — ver
+# edyma_product_color_group para el equivalente de clasificación de color) ya
+# distingue el tipo de prenda; se reutiliza en vez de inventar un campo nuevo.
+_GARMENT_SLOT_PREFIXES = [
+    ("ropa / inferior", "bottom"),
+    ("ropa / mixto", "full_body"),
+    ("ropa / superior / interior", "top_inner"),
+    ("ropa / superior / exterior", "top_outer"),
+    ("ropa / superior / chalecos", "top_outer"),
+    ("calzado", "footwear"),
+    ("complementos", "accessory"),
+]
+
+
+def _classify_garment_slot(categ_complete_name: str) -> str:
+    name = (categ_complete_name or "").strip().lower()
+    for prefix, slot in _GARMENT_SLOT_PREFIXES:
+        if name.startswith(prefix):
+            return slot
+    return "other"
+
+
+async def _build_look_panel(session: dict, domain: list) -> dict:
+    """Agrega líneas de pedido (ya acotadas a un acuerdo o departamento) en
+    el panel 'Look del uniforme': color dominante (por cantidad pedida) de
+    cada tipo de prenda por temporada + listado completo de prendas con su
+    código interno."""
+    lines = await _call_kw(
+        session,
+        "sale.order.line",
+        "search_read",
+        [domain + [["display_type", "=", False]]],
+        {
+            "fields": [
+                "product_id",
+                "product_uom_qty",
+                "product_attribute_color_value_id",
+                "order_season",
+            ],
+            "context": {"lang": "es_ES"},
+        },
+    )
+    if not lines:
+        return {"slots": {}, "garments": []}
+
+    product_ids = list({l["product_id"][0] for l in lines if l.get("product_id")})
+    color_ids = list(
+        {
+            l["product_attribute_color_value_id"][0]
+            for l in lines
+            if l.get("product_attribute_color_value_id")
+        }
+    )
+
+    prod_categ: dict = {}
+    prod_code: dict = {}
+    if product_ids:
+        prods = await _call_kw(
+            session,
+            "product.product",
+            "read",
+            [product_ids],
+            {"fields": ["categ_id", "default_code"], "context": {"lang": "es_ES"}},
+        )
+        for p in prods:
+            prod_categ[p["id"]] = p["categ_id"][0] if p.get("categ_id") else None
+            prod_code[p["id"]] = p.get("default_code") or ""
+
+    categ_ids = list({c for c in prod_categ.values() if c})
+    categ_name: dict = {}
+    if categ_ids:
+        categs = await _call_kw(
+            session,
+            "product.category",
+            "read",
+            [categ_ids],
+            {"fields": ["complete_name"], "context": {"lang": "es_ES"}},
+        )
+        categ_name = {c["id"]: c["complete_name"] for c in categs}
+
+    color_info: dict = {}
+    if color_ids:
+        colors = await _call_kw(
+            session,
+            "product.attribute.value",
+            "read",
+            [color_ids],
+            {"fields": ["name", "html_color"], "context": {"lang": "es_ES"}},
+        )
+        color_info = {c["id"]: c for c in colors}
+
+    slot_qty: dict = {}  # {slot: {season: {color_id: qty}}}
+    garments: dict = {}  # {product_id: {...}}
+    for l in lines:
+        if not l.get("product_id"):
+            continue
+        pid = l["product_id"][0]
+        categ_id = prod_categ.get(pid)
+        slot = _classify_garment_slot(categ_name.get(categ_id, ""))
+        season = l.get("order_season") or "all"
+        color = l.get("product_attribute_color_value_id")
+        color_id = color[0] if color else None
+        qty = l.get("product_uom_qty") or 0
+
+        by_season = slot_qty.setdefault(slot, {}).setdefault(season, {})
+        if color_id:
+            by_season[color_id] = by_season.get(color_id, 0) + qty
+
+        g = garments.setdefault(
+            pid,
+            {
+                "product_id": pid,
+                "name": l["product_id"][1],
+                "code": prod_code.get(pid, ""),
+                "slot": slot,
+                "color_name": color[1] if color else "",
+                "color_hex": (
+                    color_info.get(color_id, {}).get("html_color") if color_id else None
+                ),
+                "qty": 0,
+            },
+        )
+        g["qty"] += qty
+
+    slots_out: dict = {}
+    for slot, by_season in slot_qty.items():
+        slots_out[slot] = {}
+        for season, by_color in by_season.items():
+            if not by_color:
+                continue
+            dominant_id = max(by_color, key=by_color.get)
+            c = color_info.get(dominant_id, {})
+            slots_out[slot][season] = {
+                "color_name": c.get("name", ""),
+                "color_hex": c.get("html_color") or "#CCCCCC",
+            }
+
+    return {
+        "slots": slots_out,
+        "garments": sorted(garments.values(), key=lambda g: (g["slot"], g["name"])),
+    }
+
+
+@app.get("/api/agreements/{agreement_id}/look")
+async def get_agreement_look(agreement_id: int, session: SessionDep):
+    panel = await _build_look_panel(session, [["sol_agreement_id", "=", agreement_id]])
+    agreement = await _call_kw(
+        session,
+        "uniform.agreement",
+        "read",
+        [[agreement_id]],
+        {
+            "fields": ["look_photo_summer", "look_photo_winter"],
+            "context": {"lang": "es_ES"},
+        },
+    )
+    if agreement:
+        panel["photo_summer"] = agreement[0].get("look_photo_summer") or None
+        panel["photo_winter"] = agreement[0].get("look_photo_winter") or None
+    return panel
+
+
+@app.get("/api/departments/{dept_id}/look")
+async def get_department_look(dept_id: int, session: SessionDep):
+    dept = await _call_kw(
+        session,
+        "uniform.agreement.department",
+        "read",
+        [[dept_id]],
+        {
+            "fields": ["uniform_ids", "look_photo_summer", "look_photo_winter"],
+            "context": {"lang": "es_ES"},
+        },
+    )
+    if not dept:
+        raise HTTPException(404, "Departamento no encontrado")
+    order_ids = dept[0].get("uniform_ids") or []
+    panel = (
+        await _build_look_panel(session, [["order_id", "in", order_ids]])
+        if order_ids
+        else {"slots": {}, "garments": []}
+    )
+    panel["photo_summer"] = dept[0].get("look_photo_summer") or None
+    panel["photo_winter"] = dept[0].get("look_photo_winter") or None
+    return panel
 
 
 # ---------------------------------------------------------------------------
@@ -1093,6 +1441,7 @@ async def list_worker_sizes(worker_id: int, session: SessionDep):
                 "delegation_id",
                 "size_ids",
                 "employment_state",
+                "image_128",
             ],
             "context": {"lang": "es_ES"},
         },
@@ -1159,6 +1508,93 @@ async def patch_size(size_id: int, request: Request, session: SessionDep):
             [[size_id], {"size_value_id": int(sv_id)}],
         )
     return {"ok": True}
+
+
+@app.get("/api/workers/{worker_id}/available_categories")
+async def list_available_worker_categories(worker_id: int, session: SessionDep):
+    """Categorías de producto con talla (atributo type='size') que este
+    trabajador todavía no tiene registradas, para el botón '+ Añadir
+    categoría' de la pantalla Tallar."""
+    attrs = await _call_kw(
+        session,
+        "product.attribute",
+        "search_read",
+        [[["type", "=", "size"]]],
+        {"fields": ["id"], "context": {"lang": "es_ES"}},
+    )
+    attr_ids = [a["id"] for a in attrs]
+    if not attr_ids:
+        return []
+    lines = await _call_kw(
+        session,
+        "product.template.attribute.line",
+        "search_read",
+        [[["attribute_id", "in", attr_ids]]],
+        {"fields": ["product_tmpl_id"], "context": {"lang": "es_ES"}},
+    )
+    tmpl_ids = list(
+        {l["product_tmpl_id"][0] for l in lines if l.get("product_tmpl_id")}
+    )
+    if not tmpl_ids:
+        return []
+    tmpls = await _call_kw(
+        session,
+        "product.template",
+        "read",
+        [tmpl_ids],
+        {"fields": ["categ_id"], "context": {"lang": "es_ES"}},
+    )
+    categs = {t["categ_id"][0]: t["categ_id"][1] for t in tmpls if t.get("categ_id")}
+    existing = await _call_kw(
+        session,
+        "uniform.agreement.worker.size",
+        "search_read",
+        [[["worker_id", "=", worker_id]]],
+        {"fields": ["category_id"], "context": {"lang": "es_ES"}},
+    )
+    existing_categ_ids = {s["category_id"][0] for s in existing if s.get("category_id")}
+    missing = [
+        {"id": cid, "name": name}
+        for cid, name in categs.items()
+        if cid not in existing_categ_ids
+    ]
+    missing.sort(key=lambda c: c["name"])
+    return missing
+
+
+@app.post("/api/workers/{worker_id}/sizes")
+async def add_worker_size(worker_id: int, request: Request, session: SessionDep):
+    """Añade una categoría de talla nueva a un trabajador (botón '+ Añadir
+    categoría' de la pantalla Tallar). A diferencia del PUT masivo, no
+    toca las categorías ya registradas."""
+    _require_role(session, "delegation_manager")
+    body = await request.json()
+    category_id = body.get("category_id")
+    size_value_id = body.get("size_value_id")
+    if not category_id or not size_value_id:
+        raise HTTPException(400, "Falta categoría o talla")
+    existing = await _call_kw(
+        session,
+        "uniform.agreement.worker.size",
+        "search_read",
+        [[["worker_id", "=", worker_id], ["category_id", "=", int(category_id)]]],
+        {"fields": ["id"], "context": {"lang": "es_ES"}},
+    )
+    if existing:
+        raise HTTPException(409, "Este trabajador ya tiene talla para esa categoría")
+    new_id = await _call_kw(
+        session,
+        "uniform.agreement.worker.size",
+        "create",
+        [
+            {
+                "worker_id": worker_id,
+                "category_id": int(category_id),
+                "size_value_id": int(size_value_id),
+            }
+        ],
+    )
+    return {"ok": True, "id": new_id}
 
 
 # ---------------------------------------------------------------------------
@@ -1596,6 +2032,7 @@ async def _orders_with_stats(session: dict, domain: list) -> list:
                 "amount_total",
                 "partner_id",
                 "uniform_agreement_id",
+                "season",
             ],
             "context": {"lang": "es_ES"},
         },
@@ -1704,13 +2141,22 @@ async def _enrich_workers_with_stats(session: dict, workers: list) -> list:
 
 
 @app.get("/api/all_workers")
-async def list_all_workers_global(session: SessionDep):
+async def list_all_workers_global(session: SessionDep, page: int = 1, limit: int = 100):
+    """Paginado en servidor: sin esto, un cliente con miles de trabajadores
+    los cargaría/renderizaría todos de golpe (mismo problema que ya se
+    resolvió en /api/products)."""
     depts = await _call_kw(
         session,
         "uniform.agreement.department",
         "search_read",
         [[]],
-        {"fields": ["id", "name", "worker_ids"], "context": {"lang": "es_ES"}},
+        {
+            "fields": ["id", "name", "worker_ids", "agreement_ids"],
+            "context": {"lang": "es_ES"},
+        },
+    )
+    total = await _call_kw(
+        session, "uniform.agreement.worker", "search_count", [[]], {}
     )
     # Búsqueda directa del modelo (no derivada de department.worker_ids): un
     # trabajador sin departamento asignado (p.ej. tras una importación sin
@@ -1729,12 +2175,23 @@ async def list_all_workers_global(session: SessionDep):
                 "delegation_id",
                 "size_ids",
                 "employment_state",
+                "image_128",
             ],
+            "limit": limit,
+            "offset": (page - 1) * limit,
+            "order": "name",
             "context": {"lang": "es_ES"},
         },
     )
     workers = await _enrich_workers_with_stats(session, workers)
-    return {"workers": workers, "departments": depts}
+    pages = max(1, -(-total // limit))
+    return {
+        "workers": workers,
+        "departments": depts,
+        "total": total,
+        "page": page,
+        "pages": pages,
+    }
 
 
 @app.get("/api/all_deliveries")
@@ -1862,8 +2319,11 @@ async def list_all_delegations_full(session: SessionDep):
 
 
 @app.get("/api/agreements/{agreement_id}/all_workers")
-async def list_all_workers(agreement_id: int, session: SessionDep):
-    """Todos los trabajadores de todos los departamentos del acuerdo."""
+async def list_all_workers(
+    agreement_id: int, session: SessionDep, page: int = 1, limit: int = 100
+):
+    """Todos los trabajadores de todos los departamentos del acuerdo, paginado
+    en servidor (mismo motivo que /api/all_workers)."""
     depts = await _call_kw(
         session,
         "uniform.agreement.department",
@@ -1871,14 +2331,16 @@ async def list_all_workers(agreement_id: int, session: SessionDep):
         [[["agreement_ids", "in", agreement_id]]],
         {"fields": ["id", "name", "worker_ids"], "context": {"lang": "es_ES"}},
     )
-    all_worker_ids = [wid for d in depts for wid in d.get("worker_ids", [])]
-    if not all_worker_ids:
-        return {"workers": [], "departments": depts}
+    all_worker_ids = sorted({wid for d in depts for wid in d.get("worker_ids", [])})
+    total = len(all_worker_ids)
+    if not total:
+        return {"workers": [], "departments": depts, "total": 0, "page": 1, "pages": 1}
+    page_ids = all_worker_ids[(page - 1) * limit : page * limit]
     workers = await _call_kw(
         session,
         "uniform.agreement.worker",
         "read",
-        [all_worker_ids],
+        [page_ids],
         {
             "fields": [
                 "id",
@@ -1888,12 +2350,20 @@ async def list_all_workers(agreement_id: int, session: SessionDep):
                 "delegation_id",
                 "size_ids",
                 "employment_state",
+                "image_128",
             ],
             "context": {"lang": "es_ES"},
         },
     )
     workers = await _enrich_workers_with_stats(session, workers)
-    return {"workers": workers, "departments": depts}
+    pages = max(1, -(-total // limit))
+    return {
+        "workers": workers,
+        "departments": depts,
+        "total": total,
+        "page": page,
+        "pages": pages,
+    }
 
 
 @app.get("/api/agreements/{agreement_id}/workers_count")
@@ -2981,6 +3451,49 @@ async def import_workers(request: Request, session: SessionDep):
     return {"created": created, "errors": errors}
 
 
+async def _upsert_worker_size(
+    session: dict, worker_id: int, category_id: int, size_value_id: int
+) -> None:
+    """Crea o actualiza la talla del trabajador para una categoría de
+    producto. Se llama al guardar una celda de la rejilla de reparto con
+    una talla resuelta, para que quede "prerellenada" en la pantalla
+    Tallar y en el resto de prendas de la misma categoría, tal y como
+    indica el aviso de la vista de pedido."""
+    existing = await _call_kw(
+        session,
+        "uniform.agreement.worker.size",
+        "search_read",
+        [[["worker_id", "=", worker_id], ["category_id", "=", category_id]]],
+        {"fields": ["id", "size_value_id"], "context": {"lang": "es_ES"}},
+    )
+    if existing:
+        current = (
+            existing[0]["size_value_id"][0]
+            if existing[0].get("size_value_id")
+            else None
+        )
+        if current != size_value_id:
+            await _call_kw(
+                session,
+                "uniform.agreement.worker.size",
+                "write",
+                [[existing[0]["id"]], {"size_value_id": size_value_id}],
+            )
+    else:
+        await _call_kw(
+            session,
+            "uniform.agreement.worker.size",
+            "create",
+            [
+                {
+                    "worker_id": worker_id,
+                    "category_id": category_id,
+                    "size_value_id": size_value_id,
+                }
+            ],
+        )
+
+
 # ---------------------------------------------------------------------------
 # Importación masiva de líneas de pedido (tallas/cantidades por trabajador)
 # ---------------------------------------------------------------------------
@@ -3231,7 +3744,12 @@ async def get_order_grid(order_id: int, session: SessionDep):
             "read",
             [product_ids],
             {
-                "fields": ["id", "product_tmpl_id", "qty_available"],
+                "fields": [
+                    "id",
+                    "product_tmpl_id",
+                    "qty_available",
+                    "product_template_attribute_value_ids",
+                ],
                 "context": {"lang": "es_ES"},
             },
         )
@@ -3302,6 +3820,41 @@ async def get_order_grid(order_id: int, session: SessionDep):
     size_options_by_tmpl = {
         tid: await _template_size_options(session, tid) for tid in all_template_ids
     }
+    size_option_ids_by_tmpl = {
+        tid: {o["id"] for o in opts} for tid, opts in size_options_by_tmpl.items()
+    }
+
+    # Talla real de cada variante ya vendida (independiente de la tabla de
+    # tallas del trabajador): necesaria para que una línea ya guardada con
+    # una talla concreta no vuelva a pedir "Tallar" en cuanto se recarga la
+    # rejilla, aunque el trabajador no tenga esa categoría registrada.
+    variant_size_value: dict = {}
+    all_ptav_ids = list(
+        {
+            pid
+            for v in variants
+            for pid in (v.get("product_template_attribute_value_ids") or [])
+        }
+    )
+    if all_ptav_ids:
+        ptavs = await _call_kw(
+            session,
+            "product.template.attribute.value",
+            "read",
+            [all_ptav_ids],
+            {"fields": ["product_attribute_value_id"], "context": {"lang": "es_ES"}},
+        )
+        ptav_to_value = {p["id"]: p["product_attribute_value_id"][0] for p in ptavs}
+        for v in variants:
+            tid = v["product_tmpl_id"][0]
+            size_ids = size_option_ids_by_tmpl.get(tid) or set()
+            if not size_ids:
+                continue
+            for ptav_id in v.get("product_template_attribute_value_ids") or []:
+                val_id = ptav_to_value.get(ptav_id)
+                if val_id in size_ids:
+                    variant_size_value[v["id"]] = val_id
+                    break
 
     categ_by_tmpl: dict = {}
     if all_template_ids:
@@ -3393,7 +3946,7 @@ async def get_order_grid(order_id: int, session: SessionDep):
                         "template_id": tid,
                         "line_id": existing["id"],
                         "product_id": pid,
-                        "size_value_id": size_value,
+                        "size_value_id": variant_size_value.get(pid, size_value),
                         "qty": existing.get("product_uom_qty") or 0,
                         "qty_delivered": existing.get("qty_delivered") or 0,
                         "qty_available": v.get("qty_available", 0),
@@ -3555,9 +4108,12 @@ async def update_grid_cell(order_id: int, request: Request, session: SessionDep)
         "product.template",
         "read",
         [[template_id]],
-        {"fields": ["name"], "context": {"lang": "es_ES"}},
+        {"fields": ["name", "categ_id"], "context": {"lang": "es_ES"}},
     )
     tmpl_name = tmpl[0]["name"] if tmpl else ""
+    tmpl_categ_id = tmpl[0]["categ_id"][0] if tmpl and tmpl[0].get("categ_id") else None
+    if tmpl_categ_id:
+        await _upsert_worker_size(session, worker_id, tmpl_categ_id, size_value_id)
 
     if (
         existing_line
