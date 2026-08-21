@@ -549,6 +549,7 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
   .ph-title{font-size:22px;}
   .ph-right{flex-wrap:wrap;gap:6px;}
   .cards{grid-template-columns:1fr;}
+  .portal-grid{grid-template-columns:1fr;}
   .ggrid{grid-template-columns:repeat(2,1fr);}
   .fbar{flex-direction:column;align-items:stretch;}
   .finput{min-width:0;width:100%;}
@@ -1574,7 +1575,6 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
           <div class="profile-hero-name">Carmen García Rosselló</div>
           <div class="profile-hero-role">Responsable de Delegación · Distribuidora Balear de Uniformes S.L.</div>
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
-            <span class="tag t-green" style="font-size:11px;">● Activa</span>
             <span id="pf-lastaccess" style="font-size:11px;color:var(--muted);">—</span>
           </div>
         </div>
@@ -1628,7 +1628,8 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
           <div class="profile-section">
             <div class="profile-section-title"><span>Empresa</span></div>
             <div class="company-logo-box" style="cursor:default;">
-              <svg width="36" height="36" fill="none" viewBox="0 0 24 24" stroke="rgba(2,40,79,.25)" stroke-width="1.5"><path d="M3 21h18M9 8h1m4 0h1M9 12h1m4 0h1M5 21V5a2 2 0 012-2h10a2 2 0 012 2v16"/></svg>
+              <svg id="pf-company-icon" width="36" height="36" fill="none" viewBox="0 0 24 24" stroke="rgba(2,40,79,.25)" stroke-width="1.5"><path d="M3 21h18M9 8h1m4 0h1M9 12h1m4 0h1M5 21V5a2 2 0 012-2h10a2 2 0 012 2v16"/></svg>
+              <img id="pf-company-logo" style="display:none;width:36px;height:36px;object-fit:contain;border-radius:6px;" alt="" />
               <div>
                 <div class="company-logo-text">Distribuidora Balear</div>
               </div>
@@ -1640,10 +1641,6 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
             <div class="pfield">
               <div class="pfield-lbl">CIF</div>
               <input class="pfield-inp" id="pf-cif" value="" readonly />
-            </div>
-            <div class="pfield">
-              <div class="pfield-lbl">Sede principal</div>
-              <input class="pfield-inp" id="pf-addr" value="" readonly />
             </div>
           </div>
 
@@ -1869,6 +1866,12 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
     <div class="form-row">
       <label class="form-lbl">Nombre del departamento *</label>
       <input class="form-inp" id="edept-name" placeholder="Nombre del departamento" />
+    </div>
+    <div class="form-row">
+      <label class="form-lbl">Responsable</label>
+      <select class="form-inp" id="edept-responsable">
+        <option value="">— Sin responsable —</option>
+      </select>
     </div>
     <div class="form-row">
       <label class="form-lbl">Delegaciones</label>
@@ -2567,18 +2570,7 @@ async function doLogin() {
       return;
     }
     var agreements = await checkRes.json();
-    var parts = (data.name || email).split(' ');
-    var initials = parts.map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);
-    document.getElementById('sb-avatar').textContent = initials;
-    var _ta=document.getElementById('topbar-avatar');if(_ta)_ta.textContent=initials;
-    document.getElementById('sb-uname').textContent  = data.name || email;
-    _agreements = agreements;
-    _currentRole = data.role || 'delegation_manager';
-    applyRoleUI();
-    document.getElementById('login-screen').style.display = 'none';
-    document.getElementById('app').style.display = '';
-    show('v-portal', document.querySelector('.nav-it'));
-    loadProfile(); // carga la foto real del avatar sin esperar a que se entre en Mi Perfil
+    _enterApp(data.name || email, data.role, agreements);
   } catch(e) {
     errEl.textContent = 'Error de conexión con el servidor.';
     errEl.style.display = 'block';
@@ -2587,6 +2579,38 @@ async function doLogin() {
     btn.disabled = false;
   }
 }
+
+function _enterApp(displayName, role, agreements){
+  var parts = (displayName || '').split(' ');
+  var initials = parts.map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);
+  document.getElementById('sb-avatar').textContent = initials;
+  var _ta=document.getElementById('topbar-avatar');if(_ta)_ta.textContent=initials;
+  document.getElementById('sb-uname').textContent  = displayName;
+  _agreements = agreements;
+  _currentRole = role || 'delegation_manager';
+  applyRoleUI();
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = '';
+  show('v-portal', document.querySelector('.nav-it'));
+  loadProfile(); // carga la foto real del avatar sin esperar a que se entre en Mi Perfil
+}
+
+// Al cargar/recargar la página (F5), la cookie de sesión (portal_token,
+// httpOnly, 8h) sigue siendo válida en el servidor, pero antes nada
+// comprobaba eso — siempre se mostraba el login desde cero. Sesión
+// silenciosa: si /api/me responde 200, entramos directo sin pedir
+// credenciales otra vez; si no (401/sin cookie), se queda el login normal.
+(async function bootstrapSession(){
+  try{
+    var r=await fetch('/api/me');
+    if(!r.ok)return;
+    var me=await r.json();
+    var rA=await fetch('/api/agreements');
+    if(!rA.ok)return;
+    var agreements=await rA.json();
+    _enterApp(me.name || me.login, me.role, agreements);
+  }catch(e){}
+})();
 
 async function doLogout() {
   await fetch('/api/logout', {method: 'POST'}).catch(function(){});
@@ -2668,6 +2692,7 @@ var _currentRole='delegation_manager';
 var ROLE_LABELS={
   admin:'Administrador MY Uniform',
   delegation_manager:'Responsable de Delegación',
+  department_manager:'Responsable de Departamento',
   readonly:'Solo consulta',
   warehouse:'Usuario de almacén'
 };
@@ -2763,7 +2788,7 @@ async function loadPortalMessages(){
       var meta=MSG_TYPE_META[m.msg_type]||null;
       var footerParts=[fmtDate(m.date)];
       if(m.author_name)footerParts.push(escHtml(m.author_name));
-      if(m.title)footerParts.push('MY Uniform');
+      if(m.title&&m.company_id)footerParts.push(escHtml(m.company_id[1]));
       return '<div class="portal-msg'+(meta?' '+meta.cls:'')+'">'
         +(m.title?'<div class="portal-msg-title">'+(meta?meta.icon+' ':'')+escHtml(m.title)+'</div>':'')
         +'<div style="margin-bottom:8px;">'+escHtml(m.body||'')+'</div>'
@@ -2801,16 +2826,20 @@ async function loadPortalPromos(){
       var img=p.image_128
         ? '<img src="data:image/png;base64,'+p.image_128+'" />'
         : '<div style="text-align:center;padding:0 14px;font-family:var(--font-d);font-size:16px;font-weight:800;color:#fff;letter-spacing:.04em;text-transform:uppercase;">'+escHtml(p.title||'')+'</div>';
-      var promoAgreementId=p.agreement_id?p.agreement_id[0]:'null';
+      var promoAgreementId=p.order_agreement_id||'null';
       var cta=p.cta_show_button
         ? '<button class="btn btn-s btn-sm" style="margin-top:8px;font-size:11px;" onclick="openPromoContactModal('+p.id+',\''+escHtml(p.title||'').replace(/'/g,"&#39;")+'\','+promoAgreementId+')">Solicitar información</button>'
+        : '';
+      var goToProject=(p.order_id&&p.order_agreement_id)
+        ? '<button class="btn btn-p btn-sm" style="margin-top:8px;margin-left:6px;font-size:11px;" onclick="openPromoProject('+p.order_agreement_id+','+p.order_id[0]+')">Ir al proyecto</button>'
         : '';
       return '<div class="portal-promo">'
         +'<div class="portal-promo-img" style="background:linear-gradient(135deg,'+(p.color_from||'#02284F')+' 0%,'+(p.color_to||'#1D4ED8')+' 100%);">'+img+'</div>'
         +'<div class="portal-promo-body">'
           +'<div class="portal-promo-title">'+escHtml(p.title||'')+'</div>'
           +(p.subtitle?'<div class="portal-promo-sub">'+escHtml(p.subtitle)+'</div>':'')
-          +cta
+          +(p.order_name?'<div style="font-size:11px;color:var(--muted);margin-top:4px;">Proyecto: '+escHtml(p.order_name)+'</div>':'')
+          +cta+goToProject
         +'</div>'
       +'</div>';
     }).join('');
@@ -2922,7 +2951,7 @@ async function _loadDashWorkerStats(){
       (w.department_ids||[]).forEach(function(did){
         (deptAgreements[did]||[]).forEach(function(aid){agIds.add(aid);});
       });
-      var noSize=!w.size_ids||!w.size_ids.length;
+      var noSize=(!w.size_ids||!w.size_ids.length)&&(w.order_line_count>0);
       agIds.forEach(function(aid){
         if(!_dashWorkerIndex[aid])_dashWorkerIndex[aid]=[];
         _dashWorkerIndex[aid].push((w.name||'').toLowerCase());
@@ -3328,6 +3357,11 @@ function openOrder(id){
   show('v-divide',navEl);
 }
 
+function openPromoProject(agreementId,orderId){
+  _currentAgreementId=agreementId;
+  openOrder(orderId);
+}
+
 /* ── Estado para view loaders ── */
 var _viewLoaders={
   'v-portal': loadPortalView,
@@ -3435,6 +3469,7 @@ function _filterWorkers(){
   var stateVal=(document.getElementById('workers-state-sel')||{}).value||'';
   var sort=((document.getElementById('workers-sort')||{}).value||'name-asc');
   var workers=(_workersData||[]).filter(function(w){
+    if(!w.order_line_count)return false;
     if(q&&w.name.toLowerCase().indexOf(q)===-1)return false;
     if(deptId&&(w.department_ids||[]).indexOf(deptId)===-1)return false;
     if(stateVal&&(w.employment_state||'working')!==stateVal)return false;
@@ -3487,10 +3522,6 @@ function renderDeptsTable(depts,cont){
     var entrega=d.partner_id?escHtml(d.partner_id[1]):'';
     var responsable=d.responsable_id?escHtml(d.responsable_id[1]):'';
     return '<div class="dept-card">'
-      +'<div class="dept-look-mini" id="dept-look-'+d.id+'" onclick="event.stopPropagation();openLookModal(\'department\','+d.id+')">'
-      +'<img class="dept-look-photo" src="'+_deptSeasonPhoto(idx,'summer')+'" alt="" />'
-      +'<div class="dept-look-lbl">Look</div>'
-      +'</div>'
       +'<div class="dept-card-main">'
       +'<div class="dept-card-name">'+escHtml(d.name)+'</div>'
       +'<div class="dept-card-meta">'+nw+' trabajador'+(nw!==1?'es':'')+(no?' · '+stTxt:'')+'</div>'
@@ -3617,7 +3648,7 @@ function renderWorkers(workers){
       +'</tr>';
   }).join('');
   // Tailor warning
-  var noSz=workers.filter(function(w){return !w.size_ids||!w.size_ids.length;}).length;
+  var noSz=workers.filter(function(w){return (!w.size_ids||!w.size_ids.length)&&w.order_line_count>0;}).length;
   var tcEl=document.getElementById('workers-tailor-count');
   var twEl=document.getElementById('workers-tailor-warn');
   var tnEl=document.getElementById('workers-tailor-num');
@@ -3878,9 +3909,9 @@ async function loadWorkerSizes(){
         +'</div>';
     }
     if(!cont)return;
-    if(!sizes.length){cont.innerHTML='<tr><td colspan="5" style="padding:32px;text-align:center;color:var(--muted);">Sin categorías de talla registradas para este trabajador. Las categorías se generan al asignarle prendas en un pedido.</td></tr>';return;}
+    if(!sizes.length){cont.innerHTML='<tr><td colspan="5" style="padding:32px;text-align:center;color:var(--muted);">Sin productos de talla registrados para este trabajador. Se generan al asignarle prendas en un pedido.</td></tr>';return;}
     cont.innerHTML=sizes.map(function(s){
-      var catName=escHtml(s.category_name||'—');
+      var catName=escHtml(s.product_name||'—');
       var curId=s.size_value_id_id||0;
       var curLabel=escHtml(s.size_value||'');
       var opts='<option value="">— Sin talla —</option>'
@@ -3919,22 +3950,22 @@ async function saveSize(sel,sizeId){
 function renderAddCatControl(){
   var cont=document.getElementById('wsz-add-cat');
   if(!cont)return;
-  cont.innerHTML='<button class="btn btn-s btn-sm" onclick="openAddWorkerCategory()">+ Añadir categoría</button>';
+  cont.innerHTML='<button class="btn btn-s btn-sm" onclick="openAddWorkerCategory()">+ Añadir producto</button>';
 }
 
 async function openAddWorkerCategory(){
   var cont=document.getElementById('wsz-add-cat');
   if(!cont||!_currentWorkerId)return;
-  cont.innerHTML='<div style="font-size:12px;color:var(--muted);">Cargando categorías...</div>';
+  cont.innerHTML='<div style="font-size:12px;color:var(--muted);">Cargando productos...</div>';
   try{
     await _ensureSizeValues();
-    var r=await fetch('/api/workers/'+_currentWorkerId+'/available_categories');
+    var r=await fetch('/api/workers/'+_currentWorkerId+'/available_products');
     if(r.status===401){doLogout();return;}
-    var cats=await r.json();
-    if(!cats.length){cont.innerHTML='<div style="font-size:12px;color:var(--muted);">Este trabajador ya tiene talla en todas las categorías disponibles.</div>';return;}
+    var prods=await r.json();
+    if(!prods.length){cont.innerHTML='<div style="font-size:12px;color:var(--muted);">Este trabajador ya tiene talla en todos los productos disponibles.</div>';return;}
     cont.innerHTML='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;">'
       +'<select id="wsz-newcat-sel" class="fsel">'
-      +cats.map(function(c){return '<option value="'+c.id+'">'+escHtml(c.name)+'</option>';}).join('')
+      +prods.map(function(p){return '<option value="'+p.id+'">'+escHtml(p.name)+'</option>';}).join('')
       +'</select>'
       +'<select id="wsz-newcat-size" class="fsel">'
       +_sizeValues.map(function(sv){return '<option value="'+sv.id+'">'+escHtml(sv.name)+'</option>';}).join('')
@@ -3942,23 +3973,23 @@ async function openAddWorkerCategory(){
       +'<button class="btn btn-p btn-sm" onclick="submitAddWorkerCategory()">Añadir</button>'
       +'<button class="btn btn-s btn-sm" onclick="renderAddCatControl()">Cancelar</button>'
       +'</div>';
-  }catch(e){cont.innerHTML='<div style="font-size:12px;color:#DC2626;">Error cargando categorías.</div>';}
+  }catch(e){cont.innerHTML='<div style="font-size:12px;color:#DC2626;">Error cargando productos.</div>';}
 }
 
 async function submitAddWorkerCategory(){
   var catSel=document.getElementById('wsz-newcat-sel');
   var sizeSel=document.getElementById('wsz-newcat-size');
   if(!catSel||!sizeSel)return;
-  var categoryId=parseInt(catSel.value)||0;
+  var productTmplId=parseInt(catSel.value)||0;
   var sizeValueId=parseInt(sizeSel.value)||0;
-  if(!categoryId||!sizeValueId)return;
+  if(!productTmplId||!sizeValueId)return;
   try{
     var r=await fetch('/api/workers/'+_currentWorkerId+'/sizes',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({category_id:categoryId,size_value_id:sizeValueId})
+      body:JSON.stringify({product_tmpl_id:productTmplId,size_value_id:sizeValueId})
     });
     var data=await r.json().catch(function(){return{};});
-    if(!r.ok)throw new Error(data.detail||'Error al añadir la categoría');
+    if(!r.ok)throw new Error(data.detail||'Error al añadir el producto');
     loadWorkerSizes();
   }catch(e){alert('Error: '+(e.message||e));}
 }
@@ -4248,6 +4279,7 @@ async function loadAlbaran(){
   try{
     var r=await fetch(_currentAgreementId?'/api/agreements/'+_currentAgreementId+'/deliveries':'/api/all_deliveries');
     if(r.status===401){doLogout();return;}
+    if(!r.ok)throw new Error('HTTP '+r.status);
     _deliveriesData=await r.json();
     if(ph)ph.textContent=_deliveriesData.length+' albarán'+(_deliveriesData.length!==1?'es':'');
     var searchEl=document.getElementById('alb-search');if(searchEl)searchEl.value='';
@@ -4447,14 +4479,26 @@ async function loadProfile(){
         set('pf-phone',p.phone||p.mobile||'');
         if(p.function)set('pf-role',p.function);
         var companyName=p.company_name||(p.parent_id?p.parent_id[1]:'')|| (p.company_id?p.company_id[1]:'');
+        var companyId=p.parent_id?p.parent_id[0]:(p.company_id?p.company_id[0]:null);
         var sbRole=document.querySelector('.sb-urole');if(sbRole)sbRole.textContent=(p.function||'Responsable')+(companyName?' · '+companyName:'');
         var sbComp=document.querySelector('.sb-ucomp');if(sbComp)sbComp.textContent=companyName||'';
         var cn=document.querySelector('.company-logo-text');if(cn&&companyName)cn.textContent=companyName;
+        // Logo de empresa: viene del image_128 del partner EMPRESA (parent_id),
+        // no del contacto individual logueado (ese ya pinta su propio avatar
+        // arriba) — por eso antes nunca se veía aunque se subiera en Odoo.
+        if(companyId){
+          fetch('/api/partners/'+companyId).then(function(r){return r.ok?r.json():null;}).then(function(cp){
+            if(cp&&cp.image_128){
+              var img=document.getElementById('pf-company-logo');
+              var icon=document.getElementById('pf-company-icon');
+              if(img){img.src='data:image/png;base64,'+cp.image_128;img.style.display='';}
+              if(icon)icon.style.display='none';
+            }
+          }).catch(function(){});
+        }
         var roleStr=(p.function||'')+(companyName?' · '+companyName:'');if(heroR&&roleStr)heroR.textContent=roleStr;
         var razS=document.getElementById('pf-razon');if(razS)razS.value=companyName||'';
         var cifEl=document.getElementById('pf-cif');if(cifEl)cifEl.value=p.vat||'';
-        var addr=(p.street||'')+(p.zip?' '+p.zip:'')+(p.city?' '+p.city:'');
-        var addrEl=document.getElementById('pf-addr');if(addrEl)addrEl.value=addr;
         var _dtxt=document.getElementById('pf-deleg-btn-txt');
         var _dptxt=document.getElementById('pf-depts-btn-txt');
         if(_dtxt&&_agreements.length){_dtxt.textContent='Mis delegaciones (' + new Set(_agreements.map(function(a){return a.partner_id?a.partner_id[1]:'';}).filter(Boolean)).size + ')';}
@@ -5097,9 +5141,8 @@ function addCheckedWorkersToGrid(){
 
 function _renderProductCells(workerId,templateId,isDraft){
   var cell=_gridCell(workerId,templateId)||{worker_id:workerId,template_id:templateId,qty:0,qty_delivered:0,qty_available:null,size_value_id:null};
-  var categId=(_gridData.categ_by_template||{})[templateId];
   var workerSizes=(_gridData.worker_sizes||{})[workerId]||{};
-  var sizeValueId=cell.size_value_id||workerSizes[categId]||null;
+  var sizeValueId=cell.size_value_id||workerSizes[templateId]||null;
   var options=(_gridData.size_options||{})[templateId]||[];
   var hasSize=!!sizeValueId;
   var noStock=cell.qty_available!==null&&cell.qty_available!==undefined&&cell.qty_available<=0&&(Number(cell.qty)||0)<=0;
@@ -5757,12 +5800,15 @@ async function submitContactManager(){
       body:JSON.stringify({subject:subject,message:message,agreement_id:_cmAgreementId})
     });
     if(r.status===401){doLogout();return;}
-    if(!r.ok)throw new Error('HTTP '+r.status);
+    if(!r.ok){
+      var errData=await r.json().catch(function(){return{};});
+      throw new Error(errData.detail||('HTTP '+r.status));
+    }
     document.getElementById('cm-sent-ok').style.display='';
     if(sendBtn)sendBtn.textContent='✓ Enviado';
     setTimeout(function(){closeModal('modal-contact-manager');},1200);
   }catch(e){
-    alert('No se pudo enviar el mensaje. Inténtalo de nuevo.');
+    alert('No se pudo enviar el mensaje: '+(e.message||e));
     if(sendBtn){sendBtn.disabled=false;sendBtn.textContent='Enviar mensaje';}
   }
 }
@@ -6043,7 +6089,7 @@ async function submitNewDept(){
 }
 
 var _editDeptId=null;
-function openEditDeptModal(deptId){
+async function openEditDeptModal(deptId){
   var d=(_deptsCache||[]).find(function(x){return x.id===deptId;});
   _editDeptId=deptId;
   var sub=document.querySelector('#modal-edit-dept .modal-sub');
@@ -6052,8 +6098,22 @@ function openEditDeptModal(deptId){
   _renderCheckList('edept-deleg-list',_delegsCache,d?d.delegation_ids:[],'No hay delegaciones disponibles.');
   _renderCheckList('edept-agreement-list',_agreements,d?d.agreement_ids:[],'No hay acuerdos disponibles.');
   var er=document.getElementById('edept-error');if(er){er.style.display='none';er.textContent='';}
+  var respSel=document.getElementById('edept-responsable');
+  if(respSel)respSel.innerHTML='<option value="">— Sin responsable —</option>';
   openModal('modal-edit-dept');
   setTimeout(function(){if(ni)ni.focus();},80);
+  // El Responsable solo puede ser un trabajador YA asignado a este departamento
+  // (mismo criterio que el dominio de responsable_id en Odoo: id in worker_ids).
+  try{
+    var r=await fetch('/api/departments/'+deptId+'/workers');
+    if(r.status===401){doLogout();return;}
+    var workers=await r.json();
+    var currentRespId=d&&d.responsable_id?d.responsable_id[0]:null;
+    if(respSel){
+      respSel.innerHTML='<option value="">— Sin responsable —</option>'
+        +workers.map(function(w){return '<option value="'+w.id+'"'+(w.id===currentRespId?' selected':'')+'>'+escHtml(w.name)+'</option>';}).join('');
+    }
+  }catch(e){}
 }
 
 async function submitEditDept(){
@@ -6066,7 +6126,8 @@ async function submitEditDept(){
   try{
     var delegIds=_checkedIds('edept-deleg-list');
     var agreementIds=_checkedIds('edept-agreement-list');
-    var body={name:name,delegation_ids:[[6,0,delegIds]],agreement_ids:[[6,0,agreementIds]]};
+    var respVal=(document.getElementById('edept-responsable')||{}).value||'';
+    var body={name:name,delegation_ids:[[6,0,delegIds]],agreement_ids:[[6,0,agreementIds]],responsable_id:respVal?Number(respVal):false};
     var r=await fetch('/api/departments/'+_editDeptId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     if(r.status===401){doLogout();return;}
     if(!r.ok){var ed=await r.json().catch(function(){return{};});throw new Error(ed.detail||'Error');}

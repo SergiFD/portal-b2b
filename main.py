@@ -65,6 +65,15 @@ async def _rpc(endpoint: str, params: dict, odoo_session_id: str | None = None) 
         headers["Cookie"] = f"session_id={odoo_session_id}"
     body = {"jsonrpc": "2.0", "method": "call", "id": 1, "params": params}
     r = await _client.post(f"{ODOO_URL}{endpoint}", json=body, headers=headers)
+    # _client se comparte entre TODAS las peticiones de TODOS los usuarios del
+    # portal (una sola instancia creada en el lifespan). httpx.AsyncClient
+    # guarda por defecto cualquier Set-Cookie de la respuesta en su propio
+    # cookie-jar persistente — si no se vacía, la sesión de Odoo de un
+    # usuario puede acabar colándose (via el jar) en la petición de otro,
+    # pisando el header "Cookie" explícito que ya se construye arriba con el
+    # odoo_session_id correcto. Aislamiento real = jar siempre vacío; el
+    # único vehículo de sesión válido es el header explícito por request.
+    _client.cookies.clear()
     r.raise_for_status()
     data = r.json()
     if "error" in data:
@@ -74,7 +83,14 @@ async def _rpc(endpoint: str, params: dict, odoo_session_id: str | None = None) 
         import sys
 
         print(f"ODOO_ERR [{endpoint}]: {detail!r}", file=sys.stderr, flush=True)
-        raise HTTPException(status_code=400, detail=detail)
+        # code 100 es la convención fija de Odoo para "Odoo Session Expired"
+        # (odoo.http.SessionExpiredException). Sin distinguirlo, esto salía
+        # como 400 igual que cualquier otro error de negocio, y el frontend
+        # SOLO reacciona a 401 (doLogout()) — el resultado era paneles que
+        # se quedaban vacíos o con "Error cargando X" en vez de mandar a
+        # login de nuevo, aparentando una caída de datos aleatoria.
+        status = 401 if data["error"].get("code") == 100 else 400
+        raise HTTPException(status_code=status, detail=detail)
     result = data.get("result")
     # Odoo 17 NO incluye session_id en el cuerpo JSON de
     # /web/session/authenticate, solo como cookie Set-Cookie. Sin esto,
@@ -327,6 +343,7 @@ async def list_portal_messages(
                 "title",
                 "msg_type",
                 "author_name",
+                "company_id",
             ],
             **_portal_list_kwargs(limit, sort, "date desc"),
             "context": {"lang": "es_ES"},
@@ -367,13 +384,36 @@ async def list_portal_promos(
                 "color_from",
                 "color_to",
                 "cta_show_button",
-                "agreement_id",
+                "order_id",
                 "date",
             ],
             **_portal_list_kwargs(limit, sort, "sequence, date desc"),
             "context": {"lang": "es_ES"},
         },
     )
+    # order_id trae [id, display_name] pero para el botón "Ir al proyecto"
+    # del portal hace falta también el acuerdo (uniform_agreement_id) al que
+    # pertenece ese pedido, para poder navegar directamente ahí.
+    order_ids = list({p["order_id"][0] for p in promos if p.get("order_id")})
+    if order_ids:
+        orders = await _call_kw(
+            session,
+            "sale.order",
+            "read",
+            [order_ids],
+            {"fields": ["name", "uniform_agreement_id"], "context": {"lang": "es_ES"}},
+        )
+        orders_by_id = {o["id"]: o for o in orders}
+        for p in promos:
+            oid = p["order_id"][0] if p.get("order_id") else None
+            o = orders_by_id.get(oid)
+            if o:
+                p["order_name"] = o["name"]
+                p["order_agreement_id"] = (
+                    o["uniform_agreement_id"][0]
+                    if o.get("uniform_agreement_id")
+                    else None
+                )
     return promos
 
 
@@ -709,11 +749,13 @@ async def contact_promo_manager(promo_id: int, request: Request, session: Sessio
     chatter de la propia PROMOCIÓN (uniform.portal.promo) — un acuerdo puede
     tener varias promociones para un mismo cliente, así que cada una necesita
     su propio hilo, no el del acuerdo. La gestora a notificar se resuelve a
-    través del agreement_id enlazado a la promoción; si la promoción no tiene
-    uno propio, se usa el agreement_id que el frontend resolvió como
-    respaldo (el mismo que se le muestra al cliente en el wizard — sin esto
-    el cliente ve una gestora concreta pero el mensaje no le llegaría a
-    nadie)."""
+    través del proyecto (order_id) enlazado a la promoción — un proyecto es
+    lo único por lo que de verdad se piden prendas, de ahí que sea order_id
+    y no agreement_id — subiendo a su uniform_agreement_id; si la promoción
+    no tiene proyecto propio, se usa el agreement_id que el frontend
+    resolvió como respaldo (el mismo que se le muestra al cliente en el
+    wizard — sin esto el cliente ve una gestora concreta pero el mensaje no
+    le llegaría a nadie)."""
     body = await request.json()
     message = (body.get("message") or "").strip()
     if not message:
@@ -725,12 +767,22 @@ async def contact_promo_manager(promo_id: int, request: Request, session: Sessio
         "uniform.portal.promo",
         "read",
         [[promo_id]],
-        {"fields": ["title", "agreement_id"], "context": {"lang": "es_ES"}},
+        {"fields": ["title", "order_id"], "context": {"lang": "es_ES"}},
     )
     if not records:
         raise HTTPException(404, "Promoción no encontrada")
-    agreement = records[0].get("agreement_id")
-    agreement_id = agreement[0] if agreement else body.get("agreement_id")
+    order = records[0].get("order_id")
+    agreement_id = body.get("agreement_id")
+    if order:
+        order_records = await _call_kw(
+            session,
+            "sale.order",
+            "read",
+            [[order[0]]],
+            {"fields": ["uniform_agreement_id"], "context": {"lang": "es_ES"}},
+        )
+        if order_records and order_records[0].get("uniform_agreement_id"):
+            agreement_id = order_records[0]["uniform_agreement_id"][0]
 
     partner_ids = []
     if agreement_id:
@@ -1234,7 +1286,7 @@ async def get_worker(worker_id: int, session: SessionDep):
 
 @app.post("/api/workers")
 async def create_worker(request: Request, session: SessionDep):
-    _require_role(session, "delegation_manager")
+    _require_role(session, "delegation_manager", "department_manager")
     body = await request.json()
     new_id = await _call_kw(session, "uniform.agreement.worker", "create", [body])
     # Devolver el trabajador creado con todos sus campos
@@ -1414,7 +1466,7 @@ async def search_partners(
 
 @app.put("/api/workers/{worker_id}")
 async def update_worker(worker_id: int, request: Request, session: SessionDep):
-    _require_role(session, "delegation_manager")
+    _require_role(session, "delegation_manager", "department_manager")
     body = await request.json()
     await _call_kw(session, "uniform.agreement.worker", "write", [[worker_id], body])
     return {"ok": True}
@@ -1453,14 +1505,14 @@ async def list_worker_sizes(worker_id: int, session: SessionDep):
         "search_read",
         [[["worker_id", "=", worker_id]]],
         {
-            "fields": ["id", "worker_id", "category_id", "size_value_id"],
+            "fields": ["id", "worker_id", "product_tmpl_id", "size_value_id"],
             "context": {"lang": "es_ES"},
         },
     )
     for s in sizes:
-        cat = s.get("category_id")
+        prod = s.get("product_tmpl_id")
         sv = s.get("size_value_id")
-        s["category_name"] = cat[1] if isinstance(cat, list) else ""
+        s["product_name"] = prod[1] if isinstance(prod, list) else ""
         s["size_value"] = sv[1] if isinstance(sv, list) else ""
         s["size_value_id_id"] = sv[0] if isinstance(sv, list) else sv
     return {"worker": worker, "sizes": sizes}
@@ -1468,8 +1520,8 @@ async def list_worker_sizes(worker_id: int, session: SessionDep):
 
 @app.put("/api/workers/{worker_id}/sizes")
 async def update_worker_sizes(worker_id: int, request: Request, session: SessionDep):
-    """Actualiza las tallas de un trabajador. Espera lista de {category_id, size_value_id}."""
-    _require_role(session, "delegation_manager")
+    """Actualiza las tallas de un trabajador. Espera lista de {product_tmpl_id, size_value_id}."""
+    _require_role(session, "delegation_manager", "department_manager")
     body = await request.json()
     existing = await _call_kw(
         session,
@@ -1488,7 +1540,7 @@ async def update_worker_sizes(worker_id: int, request: Request, session: Session
     for size_data in body.get("sizes", []):
         record = {
             "worker_id": worker_id,
-            "category_id": size_data["category_id"],
+            "product_tmpl_id": size_data["product_tmpl_id"],
             "size_value_id": size_data["size_value_id"],
         }
         await _call_kw(session, "uniform.agreement.worker.size", "create", [record])
@@ -1497,7 +1549,7 @@ async def update_worker_sizes(worker_id: int, request: Request, session: Session
 
 @app.patch("/api/sizes/{size_id}")
 async def patch_size(size_id: int, request: Request, session: SessionDep):
-    _require_role(session, "delegation_manager")
+    _require_role(session, "delegation_manager", "department_manager")
     body = await request.json()
     sv_id = body.get("size_value_id")
     if sv_id:
@@ -1510,11 +1562,11 @@ async def patch_size(size_id: int, request: Request, session: SessionDep):
     return {"ok": True}
 
 
-@app.get("/api/workers/{worker_id}/available_categories")
-async def list_available_worker_categories(worker_id: int, session: SessionDep):
-    """Categorías de producto con talla (atributo type='size') que este
-    trabajador todavía no tiene registradas, para el botón '+ Añadir
-    categoría' de la pantalla Tallar."""
+@app.get("/api/workers/{worker_id}/available_products")
+async def list_available_worker_products(worker_id: int, session: SessionDep):
+    """Productos con talla (atributo type='size') que este trabajador
+    todavía no tiene registrados, para el botón '+ Añadir producto' de la
+    pantalla Tallar."""
     attrs = await _call_kw(
         session,
         "product.attribute",
@@ -1532,56 +1584,57 @@ async def list_available_worker_categories(worker_id: int, session: SessionDep):
         [[["attribute_id", "in", attr_ids]]],
         {"fields": ["product_tmpl_id"], "context": {"lang": "es_ES"}},
     )
-    tmpl_ids = list(
-        {l["product_tmpl_id"][0] for l in lines if l.get("product_tmpl_id")}
-    )
-    if not tmpl_ids:
+    tmpls = {
+        l["product_tmpl_id"][0]: l["product_tmpl_id"][1]
+        for l in lines
+        if l.get("product_tmpl_id")
+    }
+    if not tmpls:
         return []
-    tmpls = await _call_kw(
-        session,
-        "product.template",
-        "read",
-        [tmpl_ids],
-        {"fields": ["categ_id"], "context": {"lang": "es_ES"}},
-    )
-    categs = {t["categ_id"][0]: t["categ_id"][1] for t in tmpls if t.get("categ_id")}
     existing = await _call_kw(
         session,
         "uniform.agreement.worker.size",
         "search_read",
         [[["worker_id", "=", worker_id]]],
-        {"fields": ["category_id"], "context": {"lang": "es_ES"}},
+        {"fields": ["product_tmpl_id"], "context": {"lang": "es_ES"}},
     )
-    existing_categ_ids = {s["category_id"][0] for s in existing if s.get("category_id")}
+    existing_tmpl_ids = {
+        s["product_tmpl_id"][0] for s in existing if s.get("product_tmpl_id")
+    }
     missing = [
-        {"id": cid, "name": name}
-        for cid, name in categs.items()
-        if cid not in existing_categ_ids
+        {"id": tid, "name": name}
+        for tid, name in tmpls.items()
+        if tid not in existing_tmpl_ids
     ]
-    missing.sort(key=lambda c: c["name"])
+    missing.sort(key=lambda p: p["name"])
     return missing
 
 
 @app.post("/api/workers/{worker_id}/sizes")
 async def add_worker_size(worker_id: int, request: Request, session: SessionDep):
-    """Añade una categoría de talla nueva a un trabajador (botón '+ Añadir
-    categoría' de la pantalla Tallar). A diferencia del PUT masivo, no
-    toca las categorías ya registradas."""
-    _require_role(session, "delegation_manager")
+    """Añade un producto de talla nuevo a un trabajador (botón '+ Añadir
+    producto' de la pantalla Tallar). A diferencia del PUT masivo, no
+    toca los productos ya registrados."""
+    _require_role(session, "delegation_manager", "department_manager")
     body = await request.json()
-    category_id = body.get("category_id")
+    product_tmpl_id = body.get("product_tmpl_id")
     size_value_id = body.get("size_value_id")
-    if not category_id or not size_value_id:
-        raise HTTPException(400, "Falta categoría o talla")
+    if not product_tmpl_id or not size_value_id:
+        raise HTTPException(400, "Falta producto o talla")
     existing = await _call_kw(
         session,
         "uniform.agreement.worker.size",
         "search_read",
-        [[["worker_id", "=", worker_id], ["category_id", "=", int(category_id)]]],
+        [
+            [
+                ["worker_id", "=", worker_id],
+                ["product_tmpl_id", "=", int(product_tmpl_id)],
+            ]
+        ],
         {"fields": ["id"], "context": {"lang": "es_ES"}},
     )
     if existing:
-        raise HTTPException(409, "Este trabajador ya tiene talla para esa categoría")
+        raise HTTPException(409, "Este trabajador ya tiene talla para ese producto")
     new_id = await _call_kw(
         session,
         "uniform.agreement.worker.size",
@@ -1589,7 +1642,7 @@ async def add_worker_size(worker_id: int, request: Request, session: SessionDep)
         [
             {
                 "worker_id": worker_id,
-                "category_id": int(category_id),
+                "product_tmpl_id": int(product_tmpl_id),
                 "size_value_id": int(size_value_id),
             }
         ],
@@ -1611,7 +1664,7 @@ async def list_orders(agreement_id: int, session: SessionDep):
 
 @app.post("/api/orders/{order_id}/confirm")
 async def confirm_order(order_id: int, session: SessionDep):
-    _require_role(session, "delegation_manager")
+    _require_role(session, "delegation_manager", "department_manager")
     orders = await _call_kw(
         session,
         "sale.order",
@@ -1654,7 +1707,7 @@ async def confirm_order(order_id: int, session: SessionDep):
 
 @app.post("/api/orders/{order_id}/cancel")
 async def cancel_order(order_id: int, session: SessionDep):
-    _require_role(session, "delegation_manager")
+    _require_role(session, "delegation_manager", "department_manager")
     await _call_kw(session, "sale.order", "action_cancel", [[order_id]])
     return {"ok": True}
 
@@ -1713,7 +1766,6 @@ async def get_order_deliveries(order_id: int, session: SessionDep):
                 "scheduled_date",
                 "date_done",
                 "partner_id",
-                "picking_type_id",
                 "origin",
                 "move_ids",
                 "delivery_signature_date",
@@ -1928,7 +1980,7 @@ async def create_product_group(
     session: SessionDep,
 ):
     """Agrupa 2+ prendas del acuerdo para compartir un máximo de unidades por trabajador."""
-    _require_role(session, "delegation_manager")
+    _require_role(session, "delegation_manager", "department_manager")
     body = await request.json()
     product_ids = [int(x) for x in (body.get("product_ids") or [])]
     if len(product_ids) < 2:
@@ -1951,7 +2003,7 @@ async def create_product_group(
 
 @app.delete("/api/product_groups/{group_id}")
 async def delete_product_group(group_id: int, session: SessionDep):
-    _require_role(session, "delegation_manager")
+    _require_role(session, "delegation_manager", "department_manager")
     await _call_kw(session, "uniform.agreement.product.group", "unlink", [[group_id]])
     return {"ok": True}
 
@@ -1965,7 +2017,7 @@ async def deliver_line(line_id: int, request: Request, session: SessionDep):
     — por defecto entrega todo lo pendiente. La firma (capturada con canvas
     HTML5 en el portal) se guarda en el albarán de salida generado.
     """
-    _require_role(session, "delegation_manager", "warehouse")
+    _require_role(session, "delegation_manager", "department_manager", "warehouse")
     try:
         body = await request.json()
     except Exception:
@@ -1993,7 +2045,7 @@ async def return_line(line_id: int, request: Request, session: SessionDep):
     (capturada con canvas en el portal) se guarda en el albarán de entrada
     generado, igual que en la entrega.
     """
-    _require_role(session, "delegation_manager", "warehouse")
+    _require_role(session, "delegation_manager", "department_manager", "warehouse")
     try:
         body = await request.json()
     except Exception:
@@ -2097,6 +2149,7 @@ async def _enrich_workers_with_stats(session: dict, workers: list) -> list:
     for w in workers:
         w["assigned_count"] = len(w.get("size_ids", []))
         w["delivered_count"] = 0
+        w["order_line_count"] = 0
         w["size_labels"] = []
     if not worker_ids:
         return workers
@@ -2113,9 +2166,11 @@ async def _enrich_workers_with_stats(session: dict, workers: list) -> list:
         )
         worker_map = {w["id"]: w for w in workers}
         for sol in sols:
-            if (sol.get("qty_delivered") or 0) > 0:
-                for wid in sol.get("worker_ids", []):
-                    if wid in worker_map:
+            delivered = (sol.get("qty_delivered") or 0) > 0
+            for wid in sol.get("worker_ids", []):
+                if wid in worker_map:
+                    worker_map[wid]["order_line_count"] += 1
+                    if delivered:
                         worker_map[wid]["delivered_count"] += 1
     except Exception:
         pass
@@ -2209,7 +2264,6 @@ async def list_all_deliveries(session: SessionDep):
                 "scheduled_date",
                 "date_done",
                 "partner_id",
-                "picking_type_id",
                 "origin",
                 "move_ids",
                 "delivery_signature_date",
@@ -2797,23 +2851,23 @@ async def get_product_workers(agreement_id: int, product_id: int, session: Sessi
             {"fields": ["id", "name"], "context": {"lang": "es_ES"}},
         )
         dept_names = {d["id"]: d["name"] for d in depts}
-    categ_id = None
+    product_tmpl_id = None
     try:
         prod_info = await _call_kw(
             session,
             "product.product",
             "read",
             [[product_id]],
-            {"fields": ["categ_id"], "context": {"lang": "es_ES"}},
+            {"fields": ["product_tmpl_id"], "context": {"lang": "es_ES"}},
         )
         if prod_info:
-            raw_cat = prod_info[0].get("categ_id")
-            categ_id = raw_cat[0] if isinstance(raw_cat, list) else raw_cat
+            raw_tmpl = prod_info[0].get("product_tmpl_id")
+            product_tmpl_id = raw_tmpl[0] if isinstance(raw_tmpl, list) else raw_tmpl
     except Exception:
         pass
     all_size_ids = list({sid for w in workers_raw for sid in w.get("size_ids", [])})
     size_by_worker: dict = {}
-    if all_size_ids and categ_id:
+    if all_size_ids and product_tmpl_id:
         try:
             sizes = await _call_kw(
                 session,
@@ -2821,17 +2875,17 @@ async def get_product_workers(agreement_id: int, product_id: int, session: Sessi
                 "read",
                 [all_size_ids],
                 {
-                    "fields": ["id", "worker_id", "category_id", "size_value_id"],
+                    "fields": ["id", "worker_id", "product_tmpl_id", "size_value_id"],
                     "context": {"lang": "es_ES"},
                 },
             )
             for sz in sizes:
-                cid = (
-                    sz["category_id"][0]
-                    if isinstance(sz.get("category_id"), list)
-                    else sz.get("category_id")
+                tid = (
+                    sz["product_tmpl_id"][0]
+                    if isinstance(sz.get("product_tmpl_id"), list)
+                    else sz.get("product_tmpl_id")
                 )
-                if cid != categ_id:
+                if tid != product_tmpl_id:
                     continue
                 wid = (
                     sz["worker_id"][0]
@@ -2911,7 +2965,6 @@ async def list_deliveries(agreement_id: int, session: SessionDep):
                 "scheduled_date",
                 "date_done",
                 "partner_id",
-                "picking_type_id",
                 "origin",
                 "move_ids",
                 "delivery_signature_date",
@@ -3179,7 +3232,7 @@ async def generic_search(request: Request, session: SessionDep):
 
 @app.post("/api/delegations")
 async def create_delegation(request: Request, session: SessionDep):
-    _require_role(session, "delegation_manager")
+    _require_role(session, "delegation_manager", "department_manager")
     body = await request.json()
     name = (body.get("name") or "").strip()
     if not name:
@@ -3219,7 +3272,7 @@ async def create_delegation(request: Request, session: SessionDep):
 
 @app.post("/api/departments")
 async def create_department(request: Request, session: SessionDep):
-    _require_role(session, "delegation_manager")
+    _require_role(session, "delegation_manager", "department_manager")
     body = await request.json()
     name = (body.get("name") or "").strip()
     if not name:
@@ -3254,7 +3307,7 @@ async def create_department(request: Request, session: SessionDep):
 
 @app.put("/api/departments/{dept_id}")
 async def update_department(dept_id: int, request: Request, session: SessionDep):
-    _require_role(session, "delegation_manager")
+    _require_role(session, "delegation_manager", "department_manager")
     body = await request.json()
     await _call_kw(session, "uniform.agreement.department", "write", [[dept_id], body])
     return {"ok": True}
@@ -3272,7 +3325,7 @@ async def create_order(agreement_id: int, request: Request, session: SessionDep)
     pedido). Body opcional para pedido urgente fuera de periodicidad:
     {"rush": true, "signature": "<PNG base64>", "signed_by": "..."}.
     """
-    _require_role(session, "delegation_manager")
+    _require_role(session, "delegation_manager", "department_manager")
     try:
         body = await request.json()
     except Exception:
@@ -3392,7 +3445,7 @@ async def import_workers(request: Request, session: SessionDep):
     si no, el modelo la autogenera por secuencia) y 'department_ids_text'
     (opcional, uno o varios nombres de departamento separados por coma,
     igual que el asistente nativo de Odoo)."""
-    _require_role(session, "delegation_manager")
+    _require_role(session, "delegation_manager", "department_manager")
     body = await request.json()
     rows = body.get("rows") or []
     if not rows:
@@ -3452,18 +3505,18 @@ async def import_workers(request: Request, session: SessionDep):
 
 
 async def _upsert_worker_size(
-    session: dict, worker_id: int, category_id: int, size_value_id: int
+    session: dict, worker_id: int, product_tmpl_id: int, size_value_id: int
 ) -> None:
-    """Crea o actualiza la talla del trabajador para una categoría de
-    producto. Se llama al guardar una celda de la rejilla de reparto con
-    una talla resuelta, para que quede "prerellenada" en la pantalla
-    Tallar y en el resto de prendas de la misma categoría, tal y como
-    indica el aviso de la vista de pedido."""
+    """Crea o actualiza la talla del trabajador para un producto. Se llama
+    al guardar una celda de la rejilla de reparto con una talla resuelta,
+    para que quede "prerellenada" en la pantalla Tallar y en futuros
+    pedidos de ese mismo producto, tal y como indica el aviso de la vista
+    de pedido."""
     existing = await _call_kw(
         session,
         "uniform.agreement.worker.size",
         "search_read",
-        [[["worker_id", "=", worker_id], ["category_id", "=", category_id]]],
+        [[["worker_id", "=", worker_id], ["product_tmpl_id", "=", product_tmpl_id]]],
         {"fields": ["id", "size_value_id"], "context": {"lang": "es_ES"}},
     )
     if existing:
@@ -3487,7 +3540,7 @@ async def _upsert_worker_size(
             [
                 {
                     "worker_id": worker_id,
-                    "category_id": category_id,
+                    "product_tmpl_id": product_tmpl_id,
                     "size_value_id": size_value_id,
                 }
             ],
@@ -3856,19 +3909,6 @@ async def get_order_grid(order_id: int, session: SessionDep):
                     variant_size_value[v["id"]] = val_id
                     break
 
-    categ_by_tmpl: dict = {}
-    if all_template_ids:
-        tmpls = await _call_kw(
-            session,
-            "product.template",
-            "read",
-            [all_template_ids],
-            {"fields": ["categ_id"], "context": {"lang": "es_ES"}},
-        )
-        categ_by_tmpl = {
-            t["id"]: (t["categ_id"][0] if t.get("categ_id") else None) for t in tmpls
-        }
-
     worker_ids_in_order = list(
         {wid for l in lines for wid in (l.get("worker_ids") or [])}
     )
@@ -3902,21 +3942,21 @@ async def get_order_grid(order_id: int, session: SessionDep):
             "search_read",
             [[["worker_id", "in", all_worker_ids_for_sizes]]],
             {
-                "fields": ["worker_id", "category_id", "size_value_id"],
+                "fields": ["worker_id", "product_tmpl_id", "size_value_id"],
                 "context": {"lang": "es_ES"},
             },
         )
         for s in sizes:
             wid = s["worker_id"][0]
-            cid = (
-                s["category_id"][0]
-                if isinstance(s.get("category_id"), list)
-                else s.get("category_id")
+            tid = (
+                s["product_tmpl_id"][0]
+                if isinstance(s.get("product_tmpl_id"), list)
+                else s.get("product_tmpl_id")
             )
-            if not cid:
+            if not tid:
                 continue
             sv = s["size_value_id"][0] if s.get("size_value_id") else None
-            worker_sizes.setdefault(wid, {})[cid] = sv
+            worker_sizes.setdefault(wid, {})[tid] = sv
 
     lines_by_worker_tmpl: dict = {}
     for l in lines:
@@ -3935,8 +3975,7 @@ async def get_order_grid(order_id: int, session: SessionDep):
     for w in workers_in_order:
         for tid in all_template_ids:
             existing = lines_by_worker_tmpl.get((w["id"], tid))
-            categ_id = categ_by_tmpl.get(tid)
-            size_value = (worker_sizes.get(w["id"]) or {}).get(categ_id)
+            size_value = (worker_sizes.get(w["id"]) or {}).get(tid)
             if existing:
                 pid = existing["product_id"][0]
                 v = variant_map.get(pid, {})
@@ -3976,7 +4015,6 @@ async def get_order_grid(order_id: int, session: SessionDep):
         "groups": groups,
         "loose_products": loose_products,
         "size_options": size_options_by_tmpl,
-        "categ_by_template": categ_by_tmpl,
         "worker_sizes": worker_sizes,
         "workers_in_order": workers_in_order,
         "workers_available": workers_available,
@@ -3990,7 +4028,7 @@ async def update_grid_cell(order_id: int, request: Request, session: SessionDep)
     (worker_id, template_id) -> cantidad. Resuelve la variante por talla,
     valida stock disponible y cupo de grupo, y guarda con
     _upsert_order_line (mismo camino que el importador Excel)."""
-    _require_role(session, "delegation_manager")
+    _require_role(session, "delegation_manager", "department_manager")
     body = await request.json()
     worker_id = int(body["worker_id"])
     template_id = int(body["template_id"])
@@ -4108,12 +4146,10 @@ async def update_grid_cell(order_id: int, request: Request, session: SessionDep)
         "product.template",
         "read",
         [[template_id]],
-        {"fields": ["name", "categ_id"], "context": {"lang": "es_ES"}},
+        {"fields": ["name"], "context": {"lang": "es_ES"}},
     )
     tmpl_name = tmpl[0]["name"] if tmpl else ""
-    tmpl_categ_id = tmpl[0]["categ_id"][0] if tmpl and tmpl[0].get("categ_id") else None
-    if tmpl_categ_id:
-        await _upsert_worker_size(session, worker_id, tmpl_categ_id, size_value_id)
+    await _upsert_worker_size(session, worker_id, template_id, size_value_id)
 
     if (
         existing_line
@@ -4176,7 +4212,7 @@ async def update_grid_cell(order_id: int, request: Request, session: SessionDep)
 
 @app.post("/api/orders/{order_id}/lines/import")
 async def import_order_lines(order_id: int, request: Request, session: SessionDep):
-    _require_role(session, "delegation_manager")
+    _require_role(session, "delegation_manager", "department_manager")
     body = await request.json()
     rows = body.get("rows") or []
     if not rows:
