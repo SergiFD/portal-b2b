@@ -574,8 +574,14 @@ body.role-warehouse .role-hide-non-manager { display:none !important; }
 </head>
 <body>
 
+<!-- Pantalla neutra mientras se comprueba si la cookie de sesión sigue
+     siendo válida (bootstrapSession) — evita el parpadeo de "aparece el
+     login y al instante desaparece" que salía antes al mostrar el login
+     por defecto y ocultarlo solo después de la respuesta de /api/me. -->
+<div id="boot-check" style="position:fixed;top:0;left:0;width:100%;height:100%;background:var(--bg);z-index:10000;"></div>
+
 <!-- LOGIN SCREEN -->
-<div id="login-screen" style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--bg);width:100%;position:fixed;top:0;left:0;z-index:9999;">
+<div id="login-screen" style="display:none;align-items:center;justify-content:center;min-height:100vh;background:var(--bg);width:100%;position:fixed;top:0;left:0;z-index:9999;">
   <div style="background:var(--white);border:1px solid var(--border);border-radius:10px;padding:40px 44px;width:380px;box-shadow:0 8px 32px rgba(0,0,0,.08);">
     <div style="text-align:center;margin-bottom:32px;">
       <div style="display:inline-block;margin-bottom:20px;">
@@ -2601,15 +2607,20 @@ function _enterApp(displayName, role, agreements){
 // silenciosa: si /api/me responde 200, entramos directo sin pedir
 // credenciales otra vez; si no (401/sin cookie), se queda el login normal.
 (async function bootstrapSession(){
+  var boot=document.getElementById('boot-check');
   try{
     var r=await fetch('/api/me');
-    if(!r.ok)return;
+    if(!r.ok){document.getElementById('login-screen').style.display='flex';return;}
     var me=await r.json();
     var rA=await fetch('/api/agreements');
-    if(!rA.ok)return;
+    if(!rA.ok){document.getElementById('login-screen').style.display='flex';return;}
     var agreements=await rA.json();
     _enterApp(me.name || me.login, me.role, agreements);
-  }catch(e){}
+  }catch(e){
+    document.getElementById('login-screen').style.display='flex';
+  }finally{
+    if(boot)boot.style.display='none';
+  }
 })();
 
 async function doLogout() {
@@ -5879,16 +5890,28 @@ function _lookFigureSvgHtml(slots,season,w,h){
     +'<ellipse cx="44" cy="115" rx="8" ry="5" fill="'+shoeHex+'"/>'
     +'</svg>';
 }
-// Foto del wizard "Look del uniforme" (verano/invierno). SIEMPRE es una foto,
-// nunca la silueta SVG: si la gestora ha subido la foto real desde el
-// backend de Odoo (uniform.agreement(.department).look_photo_summer/winter)
-// se usa esa; si no, cae a una de las 3 fotos de modelo de muestra — el
-// portal nunca ofrece subir ni cambiar estas fotos, eso es solo de backend.
-function _lookPhotoHtml(data,season,entityId,w,h){
-  var real=season==='winter'?data.photo_winter:data.photo_summer;
-  var idx=_deptCardIdx[entityId]||0;
-  var src=real?('data:image/png;base64,'+real):_deptSeasonPhoto(idx,season);
-  return '<img src="'+src+'" style="width:'+w+'px;height:'+h+'px;object-fit:cover;border-radius:8px;border:1px solid var(--border);" />';
+// Galería del wizard "Look del uniforme" (verano/invierno) — hasta 10 fotos
+// reales por temporada, con scroll horizontal. Si la gestora ha subido
+// fotos reales desde el backend de Odoo (uniform.look.photo) se usan esas;
+// si no hay ninguna para esa temporada, cae a una foto de modelo de
+// muestra — el portal nunca ofrece subir ni cambiar estas fotos, eso es
+// solo de backend.
+function _lookGalleryHtml(data,season,entityId,w,h){
+  var real=(season==='winter'?data.photos_winter:data.photos_summer)||[];
+  var imgStyle='width:'+w+'px;height:'+h+'px;object-fit:cover;border-radius:8px;border:1px solid var(--border);flex-shrink:0;scroll-snap-align:start;';
+  var imgsHtml;
+  if(real.length){
+    imgsHtml=real.map(function(b64){
+      return '<img src="data:image/png;base64,'+b64+'" style="'+imgStyle+'" />';
+    }).join('');
+  }else{
+    var idx=_deptCardIdx[entityId]||0;
+    imgsHtml='<img src="'+_deptSeasonPhoto(idx,season)+'" style="'+imgStyle+'" />';
+  }
+  if(real.length<=1){
+    return '<div style="width:'+w+'px;">'+imgsHtml+'</div>';
+  }
+  return '<div style="display:flex;gap:6px;overflow-x:auto;scroll-snap-type:x mandatory;width:'+w+'px;">'+imgsHtml+'</div>';
 }
 async function _populateProjLook(agreementId){
   var panel=document.getElementById('proj-look-panel');
@@ -5920,7 +5943,7 @@ function renderLookPanel(){
   if(!_lookData){if(tbody)tbody.innerHTML='';return;}
   var slots=_lookData.slots||{};
   var figEl=document.getElementById('lk-figure');
-  if(figEl)figEl.innerHTML=_lookPhotoHtml(_lookData,_lookSeason,_lookEntityId,140,228);
+  if(figEl)figEl.innerHTML=_lookGalleryHtml(_lookData,_lookSeason,_lookEntityId,140,228);
 
   var legendParts=[];
   [['top_outer','Exterior'],['top_inner','Interior'],['bottom','Inferior'],['footwear','Calzado'],['accessory','Complementos']].forEach(function(pair){

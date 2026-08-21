@@ -959,22 +959,34 @@ async def _build_look_panel(session: dict, domain: list) -> dict:
     }
 
 
-@app.get("/api/agreements/{agreement_id}/look")
-async def get_agreement_look(agreement_id: int, session: SessionDep):
-    panel = await _build_look_panel(session, [["sol_agreement_id", "=", agreement_id]])
-    agreement = await _call_kw(
+async def _fetch_look_photos(session: dict, field: str, res_id: int) -> dict:
+    """Galería real de fotos (hasta 10 por temporada) de un acuerdo o
+    departamento — uniform.look.photo, field es 'agreement_id' o
+    'department_id'."""
+    photos = await _call_kw(
         session,
-        "uniform.agreement",
-        "read",
-        [[agreement_id]],
+        "uniform.look.photo",
+        "search_read",
+        [[[field, "=", res_id]]],
         {
-            "fields": ["look_photo_summer", "look_photo_winter"],
+            "fields": ["season", "image_1920"],
+            "order": "sequence, id",
             "context": {"lang": "es_ES"},
         },
     )
-    if agreement:
-        panel["photo_summer"] = agreement[0].get("look_photo_summer") or None
-        panel["photo_winter"] = agreement[0].get("look_photo_winter") or None
+    result = {"summer": [], "winter": []}
+    for p in photos:
+        if p.get("image_1920"):
+            result.setdefault(p["season"], []).append(p["image_1920"])
+    return result
+
+
+@app.get("/api/agreements/{agreement_id}/look")
+async def get_agreement_look(agreement_id: int, session: SessionDep):
+    panel = await _build_look_panel(session, [["sol_agreement_id", "=", agreement_id]])
+    photos = await _fetch_look_photos(session, "agreement_id", agreement_id)
+    panel["photos_summer"] = photos["summer"]
+    panel["photos_winter"] = photos["winter"]
     return panel
 
 
@@ -985,10 +997,7 @@ async def get_department_look(dept_id: int, session: SessionDep):
         "uniform.agreement.department",
         "read",
         [[dept_id]],
-        {
-            "fields": ["uniform_ids", "look_photo_summer", "look_photo_winter"],
-            "context": {"lang": "es_ES"},
-        },
+        {"fields": ["uniform_ids"], "context": {"lang": "es_ES"}},
     )
     if not dept:
         raise HTTPException(404, "Departamento no encontrado")
@@ -998,8 +1007,9 @@ async def get_department_look(dept_id: int, session: SessionDep):
         if order_ids
         else {"slots": {}, "garments": []}
     )
-    panel["photo_summer"] = dept[0].get("look_photo_summer") or None
-    panel["photo_winter"] = dept[0].get("look_photo_winter") or None
+    photos = await _fetch_look_photos(session, "department_id", dept_id)
+    panel["photos_summer"] = photos["summer"]
+    panel["photos_winter"] = photos["winter"]
     return panel
 
 
@@ -2249,13 +2259,39 @@ async def list_all_workers_global(session: SessionDep, page: int = 1, limit: int
     }
 
 
+async def _my_agreement_ids(session: dict) -> list:
+    """Ids de uniform.agreement visibles para este usuario — el ir.rule del
+    modelo ya aplica el alcance correcto por rol (toda la empresa para
+    Responsable de Delegación, solo sus departamentos para Responsable de
+    Departamento). Se reutiliza aquí para acotar catálogo/albaranes/facturas
+    a "tus proyectos", que hasta ahora no tenían ningún filtro por cliente y
+    mostraban literalmente todo lo de la base de datos."""
+    agreements = await _call_kw(
+        session,
+        "uniform.agreement",
+        "search_read",
+        [[]],
+        {"fields": ["id"], "context": {"lang": "es_ES"}},
+    )
+    return [a["id"] for a in agreements]
+
+
 @app.get("/api/all_deliveries")
 async def list_all_deliveries(session: SessionDep):
+    agreement_ids = await _my_agreement_ids(session)
+    if not agreement_ids:
+        return []
     return await _call_kw(
         session,
         "stock.picking",
         "search_read",
-        [[["state", "!=", "cancel"], ["picking_type_code", "=", "outgoing"]]],
+        [
+            [
+                ["state", "!=", "cancel"],
+                ["picking_type_code", "=", "outgoing"],
+                ["sale_id.uniform_agreement_id", "in", agreement_ids],
+            ]
+        ],
         {
             "fields": [
                 "id",
@@ -2277,6 +2313,9 @@ async def list_all_deliveries(session: SessionDep):
 
 @app.get("/api/all_invoices")
 async def list_all_invoices(session: SessionDep):
+    agreement_ids = await _my_agreement_ids(session)
+    if not agreement_ids:
+        return []
     return await _call_kw(
         session,
         "account.move",
@@ -2285,6 +2324,11 @@ async def list_all_invoices(session: SessionDep):
             [
                 ["move_type", "in", ["out_invoice", "out_refund"]],
                 ["state", "!=", "cancel"],
+                [
+                    "invoice_line_ids.sale_line_ids.order_id.uniform_agreement_id",
+                    "in",
+                    agreement_ids,
+                ],
             ]
         ],
         {
@@ -2487,8 +2531,38 @@ async def list_products(
 ):
     """Catálogo completo, paginado por producto (product.template) con sus
     variantes (product.product) anidadas — evita listar cada talla como si
-    fuera un producto distinto."""
-    domain: list = [["sale_ok", "=", True]]
+    fuera un producto distinto. Acotado a los productos que de verdad
+    aparecen en pedidos de TUS proyectos (antes se veía sin filtro el
+    catálogo entero de MyUniform, de cualquier cliente)."""
+    agreement_ids = await _my_agreement_ids(session)
+    if not agreement_ids:
+        return {"products": [], "total": 0, "page": page, "pages": 1}
+    order_lines = await _call_kw(
+        session,
+        "sale.order.line",
+        "search_read",
+        [
+            [
+                ["order_id.uniform_agreement_id", "in", agreement_ids],
+                ["display_type", "=", False],
+            ]
+        ],
+        {"fields": ["product_id"], "context": {"lang": "es_ES"}},
+    )
+    variant_ids = list({l["product_id"][0] for l in order_lines if l.get("product_id")})
+    if not variant_ids:
+        return {"products": [], "total": 0, "page": page, "pages": 1}
+    my_variants = await _call_kw(
+        session,
+        "product.product",
+        "read",
+        [variant_ids],
+        {"fields": ["product_tmpl_id"], "context": {"lang": "es_ES"}},
+    )
+    my_tmpl_ids = list(
+        {v["product_tmpl_id"][0] for v in my_variants if v.get("product_tmpl_id")}
+    )
+    domain: list = [["sale_ok", "=", True], ["id", "in", my_tmpl_ids]]
     if search.strip():
         domain.append(["name", "ilike", search.strip()])
     total = await _call_kw(
