@@ -5924,8 +5924,13 @@ async function _populateProjLook(agreementId){
     if(!garments.length){panel.style.display='none';return;}
     panel.style.display='';
     var slots=data.slots||{};
-    document.getElementById('proj-look-summer').innerHTML=_lookFigureSvgHtml(slots,'summer',72,130);
-    document.getElementById('proj-look-winter').innerHTML=_lookFigureSvgHtml(slots,'winter',72,130);
+    var photoImgHtml=function(b64,w,h){
+      return '<img src="data:image/png;base64,'+b64+'" style="width:'+w+'px;height:'+h+'px;object-fit:cover;border-radius:8px;border:1px solid var(--border);" />';
+    };
+    var photoS=(data.photos_summer||[])[0];
+    var photoW=(data.photos_winter||[])[0];
+    document.getElementById('proj-look-summer').innerHTML=photoS?photoImgHtml(photoS,72,130):_lookFigureSvgHtml(slots,'summer',72,130);
+    document.getElementById('proj-look-winter').innerHTML=photoW?photoImgHtml(photoW,72,130):_lookFigureSvgHtml(slots,'winter',72,130);
     var nameEl=document.getElementById('proj-look-name');
     if(nameEl){var ag=(_agreements||[]).find(function(a){return a.id===agreementId;});nameEl.textContent=ag?(ag.name||''):'';}
     var itemsEl=document.getElementById('proj-look-items');
