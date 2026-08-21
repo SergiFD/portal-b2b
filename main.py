@@ -11,6 +11,7 @@ import os
 import secrets
 import httpx
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any, Annotated
 
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, Cookie
@@ -368,8 +369,12 @@ async def list_portal_promos(
     dupliques ese filtro aquí en Python: session["partner_id"] es el partner
     de login (para un admin interno, el suyo propio, no el de ningún
     cliente), así que un dominio adicional aquí solo puede estrechar de más
-    lo que Odoo ya filtra correctamente."""
-    domain = [["active", "=", True]]
+    lo que Odoo ya filtra correctamente.
+
+    Solo se muestran promociones ya publicadas (date <= ahora): una promo con
+    fecha futura no debe aparecer todavía en el portal (petición 21/08)."""
+    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    domain = [["active", "=", True], ["date", "<=", now_str]]
     promos = await _call_kw(
         session,
         "uniform.portal.promo",
